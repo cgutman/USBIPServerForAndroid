@@ -4,6 +4,9 @@ import org.cgutman.usbip.service.UsbIpService;
 import org.cgutman.usbipserverforandroid.R;
 
 import android.app.Activity;
+import android.app.ActivityManager;
+import android.app.ActivityManager.RunningServiceInfo;
+import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
@@ -15,7 +18,7 @@ public class UsbIpConfig extends Activity {
 	private Button serviceButton;
 	private TextView serviceStatus;
 	
-	private boolean running = false;
+	private boolean running;
 	
 	private void updateStatus() {
 		if (running) {
@@ -28,6 +31,17 @@ public class UsbIpConfig extends Activity {
 		}
 	}
 	
+	// Elegant Stack Overflow solution to querying running services
+	private boolean isMyServiceRunning(Class<?> serviceClass) {
+	    ActivityManager manager = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+	    for (RunningServiceInfo service : manager.getRunningServices(Integer.MAX_VALUE)) {
+	        if (serviceClass.getName().equals(service.service.getClassName())) {
+	            return true;
+	        }
+	    }
+	    return false;
+	}
+	
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
@@ -35,6 +49,8 @@ public class UsbIpConfig extends Activity {
 
 		serviceButton = (Button) findViewById(R.id.serviceButton);
 		serviceStatus = (TextView) findViewById(R.id.serviceStatus);
+		
+		running = isMyServiceRunning(UsbIpService.class);
 		
 		updateStatus();
 		
