@@ -1,7 +1,7 @@
 package org.cgutman.usbip.server.protocol;
 
 public class ProtoDefs {
-	public static final short USBIP_VERSION = 0x0106;
+	/* public static final short USBIP_VERSION = 0x0111; */
 	
 	public static final short OP_REQUEST = (short) (0x80 << 8);
 	public static final short OP_REPLY = (0x00 << 8);

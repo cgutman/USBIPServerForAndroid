@@ -29,11 +29,11 @@ public abstract class CommonPacket {
 	public static CommonPacket read(InputStream in) throws IOException {
 		ByteBuffer bb = ByteBuffer.allocate(8);
 		StreamUtils.readAll(in, bb.array());
-
-		short version = bb.getShort();
-		if (version != ProtoDefs.USBIP_VERSION) {
-			throw new IOException("Unsupported protocol version: "+version);
-		}
+		
+		// We should check the version here, but it seems they like to
+		// increment it without actually changing the protocol, so I'm
+		// not going to.
+		bb.getShort();
 		
 		CommonPacket pkt;
 		short code = bb.getShort();

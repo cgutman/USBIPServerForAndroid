@@ -10,8 +10,8 @@ public class ImportDeviceReply extends CommonPacket {
 		super(header);
 	}
 	
-	public ImportDeviceReply() {
-		super(ProtoDefs.USBIP_VERSION, ProtoDefs.OP_REP_IMPORT, ProtoDefs.ST_OK);
+	public ImportDeviceReply(short version) {
+		super(version, ProtoDefs.OP_REP_IMPORT, ProtoDefs.ST_OK);
 	}
 	
 	@Override

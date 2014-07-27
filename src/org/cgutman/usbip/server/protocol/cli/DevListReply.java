@@ -13,8 +13,8 @@ public class DevListReply extends CommonPacket {
 		super(header);
 	}
 	
-	public DevListReply() {
-		super(ProtoDefs.USBIP_VERSION, ProtoDefs.OP_REP_DEVLIST, ProtoDefs.ST_OK);
+	public DevListReply(short version) {
+		super(version, ProtoDefs.OP_REP_DEVLIST, ProtoDefs.ST_OK);
 	}
 	
 	@Override

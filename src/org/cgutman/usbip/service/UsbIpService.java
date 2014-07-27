@@ -5,6 +5,8 @@ import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -20,7 +22,9 @@ import org.cgutman.usbip.server.protocol.UsbIpInterface;
 import org.cgutman.usbip.server.protocol.dev.UsbIpDevicePacket;
 import org.cgutman.usbip.server.protocol.dev.UsbIpSubmitUrb;
 import org.cgutman.usbip.server.protocol.dev.UsbIpSubmitUrbReply;
-import org.cgutman.usbip.usb.DescriptorReader;
+import org.cgutman.usbip.server.protocol.dev.UsbIpUnlinkUrb;
+import org.cgutman.usbip.server.protocol.dev.UsbIpUnlinkUrbReply;
+import org.cgutman.usbip.usb.UsbControlHelper;
 import org.cgutman.usbip.usb.UsbDeviceDescriptor;
 import org.cgutman.usbip.usb.XferUtils;
 import org.cgutman.usbipserverforandroid.R;
@@ -39,10 +43,8 @@ import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbEndpoint;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
-import android.hardware.usb.UsbRequest;
 import android.net.wifi.WifiManager;
 import android.net.wifi.WifiManager.WifiLock;
-import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
 import android.os.PowerManager.WakeLock;
@@ -54,6 +56,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 	
 	private SparseArray<AttachedDeviceContext> connections;
 	private SparseArray<Boolean> permission;
+	private HashMap<Socket, AttachedDeviceContext> socketMap;
 	private UsbIpServer server;
 	private WakeLock cpuWakeLock;
 	private WifiLock wifiLock;
@@ -112,6 +115,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		usbManager = (UsbManager) getSystemService(Context.USB_SERVICE);		
 		connections = new SparseArray<AttachedDeviceContext>();
 		permission = new SparseArray<Boolean>();
+		socketMap = new HashMap<Socket, AttachedDeviceContext>();
 		
 		usbPermissionIntent = PendingIntent.getBroadcast(this, 0, new Intent(ACTION_USB_PERMISSION), 0);
 		IntentFilter filter = new IntentFilter(ACTION_USB_PERMISSION);
@@ -237,15 +241,48 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 			return UsbIpDevice.USB_SPEED_UNKNOWN;
 		}
 	}
+	
+	private static int deviceIdToBusNum(int deviceId) {
+		return deviceId / 1000;
+	}
+	
+	private static int deviceIdToDevNum(int deviceId) {
+		return deviceId % 1000;
+	}
+	
+	private static int devIdToDeviceId(int devId) {
+		// This is the same algorithm as Android uses
+		return ((devId >> 16) & 0xFF) * 1000 + (devId & 0xFF);
+	}
+	
+	private static int busIdToBusNum(String busId) {
+		if (busId.indexOf('-') == -1) {
+			return -1;
+		}
+		
+		return Integer.parseInt(busId.substring(0, busId.indexOf('-')));
+	}
+	
+	private static int busIdToDevNum(String busId) {
+		if (busId.indexOf('-') == -1) {
+			return -1;
+		}
+		
+		return Integer.parseInt(busId.substring(busId.indexOf('-')+1));
+	}
+	
+	private static int busIdToDeviceId(String busId) {
+		return devIdToDeviceId(((busIdToBusNum(busId) << 16) & 0xFF0000) | busIdToDevNum(busId));
+	}
 
-	private UsbDeviceInfo getInfoForDevice(UsbDevice dev) {
+	private UsbDeviceInfo getInfoForDevice(UsbDevice dev, UsbDeviceConnection devConn) {
 		UsbDeviceInfo info = new UsbDeviceInfo();
 		UsbIpDevice ipDev = new UsbIpDevice();
 		
 		ipDev.path = dev.getDeviceName();
-		ipDev.busid = String.format("%d", dev.getDeviceId());
-		ipDev.busnum = 0;
-		ipDev.devnum = dev.getDeviceId();
+		ipDev.busnum = deviceIdToBusNum(dev.getDeviceId());
+		ipDev.devnum =  deviceIdToDevNum(dev.getDeviceId());
+		ipDev.busid = String.format("%d-%d", ipDev.busnum, ipDev.devnum);
 		
 		ipDev.idVendor = (short) dev.getVendorId();
 		ipDev.idProduct = (short) dev.getProductId();
@@ -277,7 +314,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		if (context != null) {
 			// Since we're attached already, we can directly query the USB descriptors
 			// to fill some information that Android's USB API doesn't expose
-			devDesc = DescriptorReader.readDeviceDescriptor(context.devConn);
+			devDesc = UsbControlHelper.readDeviceDescriptor(context.devConn);
 			
 			ipDev.bcdDevice = devDesc.bcdDevice;
 			ipDev.bNumConfigurations = devDesc.bNumConfigurations;
@@ -293,7 +330,13 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		ArrayList<UsbDeviceInfo> list = new ArrayList<UsbDeviceInfo>();
 		
 		for (UsbDevice dev : usbManager.getDeviceList().values()) {
-			list.add(getInfoForDevice(dev));
+			AttachedDeviceContext context = connections.get(dev.getDeviceId());
+			UsbDeviceConnection devConn = null;
+			if (context != null) {
+				devConn = context.devConn;
+			}
+			
+			list.add(getInfoForDevice(dev, devConn));
 		}
 		
 		return list;
@@ -329,6 +372,18 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		}
 	}
 	
+	private static void sendReply(Socket s, UsbIpUnlinkUrbReply reply, int status) {
+		reply.status = status;
+		try {
+			// We need to synchronize to avoid writing on top of ourselves
+			synchronized (s) {
+				s.getOutputStream().write(reply.serialize());
+			}
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+	
 	// FIXME: This dispatching could use some refactoring so we don't have to pass
 	// a million parameters to this guy
 	private void dispatchRequest(final AttachedDeviceContext context, final Socket s,
@@ -351,94 +406,79 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 										selectedEndpoint.getEndpointNumber());
 					}
 					
-					int res = XferUtils.doBulkTransfer(context.devConn,selectedEndpoint, buff.array(), msg.interval);
+					int res;
+					do {
+						res = XferUtils.doBulkTransfer(context.devConn, selectedEndpoint, buff.array(), 1000);
+						
+						if (context.requestPool.isShutdown()) {
+							// Bail if the queue is being torn down
+							return;
+						}
+						
+						if (!context.activeMessages.contains(msg)) {
+							// Somebody cancelled the URB, return without responding
+							return;
+						}
+					} while (res == -110); // ETIMEDOUT
 					
 					if (DEBUG) {
 						System.out.printf("Bulk transfer complete with %d bytes (wanted %d)\n",
 								res, msg.transferBufferLength);
 					}
-
+					
 					if (res < 0) {
-						reply.status = ProtoDefs.ST_NA;
+						reply.status = res;
 					}
 					else {
 						reply.actualLength = res;
 						reply.status = ProtoDefs.ST_OK;
 					}
+
+					context.activeMessages.remove(msg);
 					sendReply(s, reply, reply.status);
 				}
 				else if (selectedEndpoint.getType() == UsbConstants.USB_ENDPOINT_XFER_INT) {
-					
 					if (DEBUG) {
 						System.out.printf("Interrupt transfer - %d bytes %s on EP %d\n",
 								msg.transferBufferLength, msg.direction == UsbIpDevicePacket.USBIP_DIR_IN ? "in" : "out",
 										selectedEndpoint.getEndpointNumber());
 					}
-										
-					UsbRequest req = new UsbRequest();
-					req.initialize(context.devConn, selectedEndpoint);
 					
-					// Create a context for this request so we can identify it
-					// when we're done
-					UrbContext urbCtxt = new UrbContext();
-					urbCtxt.originalMsg = msg;
-					urbCtxt.replyMsg = reply;
-					urbCtxt.buffer = buff;
-					req.setClientData(urbCtxt);
-					if (!req.queue(buff, msg.transferBufferLength)) {
-						System.err.println("Failed to queue request");
-						sendReply(s, reply, ProtoDefs.ST_NA);
-						req.close();
-						return;
-					}
-					
-					// ---------------- msg is not safe to use below this point -----------
-					
-					// This can return a different request than what we queued,
-					// so we have to lookup the correct reply for this guy
-					req = context.devConn.requestWait();
-					urbCtxt = (UrbContext) req.getClientData();
-					reply = urbCtxt.replyMsg;
-					UsbIpSubmitUrb originalMsg = urbCtxt.originalMsg;
-					
-					
-					// On Jelly Bean MR1 (4.2), they exposed the actual transfer length
-					// as the byte buffer's position. On previous platforms, we just assume
-					// the whole thing went through.
-					if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-						// The byte buffer could have changed so we need to get it from
-						// the client data
-						reply.actualLength = urbCtxt.buffer.position();
-					}
-					else {
-						reply.actualLength = originalMsg.transferBufferLength;
-					}
-					
-					req.close();
+					int res;
+					do {
+						res = XferUtils.doInterruptTransfer(context.devConn, selectedEndpoint, buff.array(), 1000);
+						
+						if (context.requestPool.isShutdown()) {
+							// Bail if the queue is being torn down
+							return;
+						}
+						
+						if (!context.activeMessages.contains(msg)) {
+							// Somebody cancelled the URB, return without responding
+							return;
+						}
+					} while (res == -110); // ETIMEDOUT
 					
 					if (DEBUG) {
 						System.out.printf("Interrupt transfer complete with %d bytes (wanted %d)\n",
-								reply.actualLength, originalMsg.transferBufferLength);
+								res, msg.transferBufferLength);
 					}
-					if (reply.actualLength == 0) {
-						// Request actually failed
-						reply.status = ProtoDefs.ST_NA;
+					
+					if (res < 0) {
+						reply.status = res;
 					}
 					else {
-						// LGTM
+						reply.actualLength = res;
 						reply.status = ProtoDefs.ST_OK;
 					}
 					
-					// Docs are conflicting on whether we need to fill this for non-iso
-					// transfers. Nothing in the client driver code seems to use it
-					// so I'm not going to...
-					reply.startFrame = 0;
-					
+					context.activeMessages.remove(msg);
 					sendReply(s, reply, reply.status);
 				}
 				else {
 					System.err.println("Unsupported endpoint type: "+selectedEndpoint.getType());
-					sendReply(s, reply, ProtoDefs.ST_NA);
+					context.activeMessages.remove(msg);
+					server.killClient(s);
 				}
 			}
 		});
@@ -449,18 +489,18 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		UsbIpSubmitUrbReply reply = new UsbIpSubmitUrbReply(msg.seqNum,
 				msg.devId, msg.direction, msg.ep);
 		
-		UsbDevice dev = getDevice(msg.devId);
+		int deviceId = devIdToDeviceId(msg.devId);
+		
+		UsbDevice dev = getDevice(deviceId);
 		if (dev == null) {
 			// The device is gone, so terminate the client
-			cleanupDetachedDevice(msg.devId);
 			server.killClient(s);
 			return;
 		}
 		
-		AttachedDeviceContext context = connections.get(msg.devId);
+		AttachedDeviceContext context = connections.get(deviceId);
 		if (context == null) {
 			// This should never happen, but kill the connection if it does
-			cleanupDetachedDevice(msg.devId);
 			server.killClient(s);
 			return;
 		}
@@ -481,17 +521,36 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 			if (length != 0) {
 				reply.inData = new byte[length];
 			}
+
+			// This message is now active
+			context.activeMessages.add(msg);
 			
-			int res = XferUtils.doControlTransfer(devConn, requestType, request, value, index,
-					(requestType & 0x80) != 0 ? reply.inData : msg.outData, length, msg.interval);
+			int res;
+			
+			do {
+				res = XferUtils.doControlTransfer(devConn, requestType, request, value, index,
+					(requestType & 0x80) != 0 ? reply.inData : msg.outData, length, 1000);
+				
+				if (context.requestPool.isShutdown()) {
+					// Bail if the queue is being torn down
+					return;
+				}
+				
+				if (!context.activeMessages.contains(msg)) {
+					// Somebody cancelled the URB, return without responding
+					return;
+				}
+			} while (res == -110); // ETIMEDOUT
+
 			if (res < 0) {
-				reply.status = ProtoDefs.ST_NA;
+				reply.status = res;
 			}
 			else {
 				reply.actualLength = res;
 				reply.status = ProtoDefs.ST_OK;
 			}
 			
+			context.activeMessages.remove(msg);
 			sendReply(s, reply, reply.status);
 			return;
 		}
@@ -545,14 +604,17 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 				buff = ByteBuffer.wrap(msg.outData);
 			}
 			
+			// This message is now active
+			context.activeMessages.add(msg);
+			
 			// Dispatch this request asynchronously
 			dispatchRequest(context, s, selectedEndpoint, buff, msg);
 		}
 	}
 	
-	private UsbDevice getDevice(int busId) {
+	private UsbDevice getDevice(int deviceId) {
 		for (UsbDevice dev : usbManager.getDeviceList().values()) {
-			if (dev.getDeviceId() == busId) {
+			if (dev.getDeviceId() == deviceId) {
 				return dev;
 			}
 		}
@@ -561,15 +623,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 	}
 	
 	private UsbDevice getDevice(String busId) {
-		int id;
-		
-		try {
-			id = Integer.parseInt(busId);
-		} catch (NumberFormatException e) {
-			return null;
-		}
-		
-		return getDevice(id);
+		return getDevice(busIdToDeviceId(busId));
 	}
 
 	@Override
@@ -579,13 +633,24 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 			return null;
 		}
 		
-		return getInfoForDevice(dev);
+		AttachedDeviceContext context = connections.get(dev.getDeviceId());
+		UsbDeviceConnection devConn = null;
+		if (context != null) {
+			devConn = context.devConn;
+		}
+		
+		return getInfoForDevice(dev, devConn);
 	}
 
 	@Override
-	public boolean attachToDevice(String busId) {
+	public boolean attachToDevice(Socket s, String busId) {
 		UsbDevice dev = getDevice(busId);
 		if (dev == null) {
+			return false;
+		}
+		
+		if (connections.get(dev.getDeviceId()) != null) {
+			// Already attached
 			return false;
 		}
 		
@@ -617,7 +682,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		// Claim all interfaces since we don't know which one the client wants
 		for (int i = 0; i < dev.getInterfaceCount(); i++) {
 			if (!devConn.claimInterface(dev.getInterface(i), true)) {
-				return false;
+				System.err.println("Unabled to claim interface "+dev.getInterface(i).getId());
 			}
 		}
 		
@@ -626,7 +691,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		context.devConn = devConn;
 		context.device = dev;
 		
-		// Count all endpoints on all intefaces
+		// Count all endpoints on all interfaces
 		int endpointCount = 0;
 		for (int i = 0; i < dev.getInterfaceCount(); i++) {
 			endpointCount += dev.getInterface(i).getEndpointCount();
@@ -637,7 +702,11 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 				Long.MAX_VALUE, TimeUnit.DAYS, 
 				new LinkedBlockingQueue<Runnable>(), new ThreadPoolExecutor.DiscardPolicy());
 		
+		// Create the active message set
+		context.activeMessages = new HashSet<UsbIpSubmitUrb>();
+		
 		connections.put(dev.getDeviceId(), context);
+		socketMap.put(s, context);
 		
 		updateNotification();
 		return true;
@@ -652,6 +721,9 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		// Clear the this attachment's context
 		connections.remove(deviceId);
 		
+		// Signal queue death
+		context.requestPool.shutdownNow();
+		
 		// Release our claim to the interfaces
 		for (int i = 0; i < context.device.getInterfaceCount(); i++) {
 			context.devConn.releaseInterface(context.device.getInterface(i));
@@ -659,12 +731,17 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 
 		// Close the connection
 		context.devConn.close();
+		
+		// Wait for the queue to die
+		try {
+			context.requestPool.awaitTermination(Long.MAX_VALUE, TimeUnit.DAYS);
+		} catch (InterruptedException e) {}
 
 		updateNotification();
 	}
 	
 	@Override
-	public void detachFromDevice(String busId) {
+	public void detachFromDevice(Socket s, String busId) {
 		UsbDevice dev = getDevice(busId);
 		if (dev == null) {
 			return;
@@ -672,16 +749,47 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		
 		cleanupDetachedDevice(dev.getDeviceId());
 	}
-	
-	class UrbContext {
-		public UsbIpSubmitUrb originalMsg;
-		public UsbIpSubmitUrbReply replyMsg;
-		public ByteBuffer buffer;
+
+	@Override
+	public void cleanupSocket(Socket s) {
+		AttachedDeviceContext context = socketMap.remove(s);
+		if (context == null) {
+			return;
+		}
+		
+		cleanupDetachedDevice(context.device.getDeviceId());
+	}
+
+	@Override
+	public void abortUrbRequest(Socket s, UsbIpUnlinkUrb msg) {
+		AttachedDeviceContext context = socketMap.get(s);
+		if (context == null) {
+			return;
+		}
+		
+		UsbIpUnlinkUrbReply reply = new UsbIpUnlinkUrbReply(msg.seqNum, msg.devId, msg.direction, msg.ep);
+		
+		boolean found = false;
+		synchronized (context.activeMessages) {
+			for (UsbIpSubmitUrb urbMsg : context.activeMessages) {
+				if (msg.seqNumToUnlink == urbMsg.seqNum) {
+					context.activeMessages.remove(urbMsg);
+					found = true;
+					break;
+				}
+			}
+		}
+		
+		System.out.println("Removed URB? " + (found ? "yes" : "no"));
+		sendReply(s, reply,
+				found ? UsbIpSubmitUrb.USBIP_STATUS_URB_ABORTED :
+					-22); // EINVAL
 	}
 	
 	class AttachedDeviceContext {
 		public UsbDevice device;
 		public UsbDeviceConnection devConn;
 		public ThreadPoolExecutor requestPool;
+		public HashSet<UsbIpSubmitUrb> activeMessages;
 	}
 }

@@ -1,8 +1,6 @@
 package org.cgutman.usbip.server;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Map;
@@ -15,6 +13,7 @@ import org.cgutman.usbip.server.protocol.cli.ImportDeviceReply;
 import org.cgutman.usbip.server.protocol.cli.ImportDeviceRequest;
 import org.cgutman.usbip.server.protocol.dev.UsbIpDevicePacket;
 import org.cgutman.usbip.server.protocol.dev.UsbIpSubmitUrb;
+import org.cgutman.usbip.server.protocol.dev.UsbIpUnlinkUrb;
 
 public class UsbIpServer {
 	public static final int PORT = 3240;
@@ -25,14 +24,19 @@ public class UsbIpServer {
 	private ConcurrentHashMap<Socket, Thread> connections = new ConcurrentHashMap<Socket, Thread>();
 	
 	// Returns true if a device is now attached
-	private boolean handleRequest(InputStream in, OutputStream out) throws IOException {
-		CommonPacket inMsg = CommonPacket.read(in);
+	private boolean handleRequest(Socket s) throws IOException {
+		CommonPacket inMsg = CommonPacket.read(s.getInputStream());
 		CommonPacket outMsg;
+		
+		if (inMsg == null) {
+			s.close();
+			return false;
+		}
 		
 		boolean res = false;
 		System.out.printf("In code: 0x%x\n", inMsg.code);
 		if (inMsg.code == ProtoDefs.OP_REQ_DEVLIST) {
-			DevListReply dlReply = new DevListReply();
+			DevListReply dlReply = new DevListReply(inMsg.version);
 			dlReply.devInfoList = handler.getDevices();
 			if (dlReply.devInfoList == null) {
 				dlReply.status = ProtoDefs.ST_NA;
@@ -41,9 +45,9 @@ public class UsbIpServer {
 		}
 		else if (inMsg.code == ProtoDefs.OP_REQ_IMPORT) {
 			ImportDeviceRequest imReq = (ImportDeviceRequest)inMsg;
-			ImportDeviceReply imReply = new ImportDeviceReply();
+			ImportDeviceReply imReply = new ImportDeviceReply(inMsg.version);
 			
-			res = handler.attachToDevice(imReq.busid);
+			res = handler.attachToDevice(s, imReq.busid);
 			if (res) {
 				imReply.devInfo = handler.getDeviceByBusId(imReq.busid);
 				if (imReply.devInfo == null) {
@@ -64,7 +68,7 @@ public class UsbIpServer {
 		}
 		
 		System.out.printf("Out code: 0x%x\n", outMsg.code);
-		out.write(outMsg.serialize());
+		s.getOutputStream().write(outMsg.serialize());
 		return res;
 	}
 	
@@ -73,6 +77,9 @@ public class UsbIpServer {
 		
 		if (inMsg.command == UsbIpDevicePacket.USBIP_CMD_SUBMIT) {
 			handler.submitUrbRequest(s, (UsbIpSubmitUrb) inMsg);
+		}
+		else if (inMsg.command == UsbIpDevicePacket.USBIP_CMD_UNLINK) {
+			handler.abortUrbRequest(s, (UsbIpUnlinkUrb) inMsg);
 		}
 		else {
 			return false;
@@ -100,19 +107,19 @@ public class UsbIpServer {
 			@Override
 			public void run() {
 				try {
-					// Disable Nagle
 					s.setTcpNoDelay(true);
+					s.setKeepAlive(true);
 					
-					InputStream in = s.getInputStream();
-					OutputStream out = s.getOutputStream();
 					while (!isInterrupted()) {
-						if (handleRequest(in, out)) {
+						if (handleRequest(s)) {
 							while (handleDevRequest(s));
 						}
 					}
 				} catch (IOException e) {
 					System.out.println("Client disconnected");
 				} finally {
+					handler.cleanupSocket(s);
+					
 					try {
 						s.close();
 					} catch (IOException e) {}

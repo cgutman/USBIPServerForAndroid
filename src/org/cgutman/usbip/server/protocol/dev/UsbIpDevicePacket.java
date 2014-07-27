@@ -18,11 +18,11 @@ public abstract class UsbIpDevicePacket {
 	public static final int USBIP_DIR_IN = 1;
 	
 	public static final int USBIP_STATUS_ENDPOINT_HALTED = -32;
+	public static final int USBIP_STATUS_URB_ABORTED = -54;
 	public static final int USBIP_STATUS_DATA_OVERRUN = -75;
+	public static final int USBIP_STATUS_URB_TIMED_OUT = -110;
 	public static final int USBIP_STATUS_SHORT_TRANSFER = -121;
-	
-	public static final int USBIP_SHORT_XFER_OKAY = 0x01;
-	
+		
 	public static final int USBIP_HEADER_SIZE = 48;
 	
 	public int command;
@@ -58,6 +58,8 @@ public abstract class UsbIpDevicePacket {
 		{
 		case USBIP_CMD_SUBMIT:
 			return UsbIpSubmitUrb.read(bb.array(), in);
+		case USBIP_CMD_UNLINK:
+			return UsbIpUnlinkUrb.read(bb.array(), in);
 		default:
 			System.err.println("Unknown command: "+command);
 			return null;
