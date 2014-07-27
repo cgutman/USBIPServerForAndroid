@@ -10,6 +10,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import org.cgutman.usbip.config.UsbIpConfig;
 import org.cgutman.usbip.server.UsbDeviceInfo;
 import org.cgutman.usbip.server.UsbIpServer;
 import org.cgutman.usbip.server.UsbRequestHandler;
@@ -22,8 +23,10 @@ import org.cgutman.usbip.server.protocol.dev.UsbIpSubmitUrbReply;
 import org.cgutman.usbip.usb.DescriptorReader;
 import org.cgutman.usbip.usb.UsbDeviceDescriptor;
 import org.cgutman.usbip.usb.XferUtils;
+import org.cgutman.usbipserverforandroid.R;
 
 import android.annotation.SuppressLint;
+import android.app.Notification;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.BroadcastReceiver;
@@ -46,6 +49,9 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 	private UsbManager usbManager;
 	private SparseArray<AttachedDeviceContext> connections;
 	private SparseArray<Boolean> permission;
+	private UsbIpServer server;
+	
+	private static final int NOTIFICATION_ID = 100;
 	
 	private static final String ACTION_USB_PERMISSION =
 		    "org.cgutman.usbip.USB_PERMISSION";
@@ -64,6 +70,31 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		}
 	};
 	
+	@SuppressWarnings("deprecation")
+	private void updateNotification() {
+		Intent intent = new Intent(this, UsbIpConfig.class);
+		intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+		PendingIntent pendIntent = PendingIntent.getActivity(this, 0, intent, 0);
+		
+		Notification.Builder builder = new Notification.Builder(this);
+		builder
+		.setTicker("USB/IP Server Running")
+		.setContentTitle("USB/IP Server Running")
+		.setAutoCancel(false)
+		.setOngoing(true)
+		.setSmallIcon(R.drawable.notification_icon)
+		.setContentIntent(pendIntent);
+		
+		if (connections.size() == 0) {
+			builder.setContentText("No devices currently shared");
+		}
+		else {
+			builder.setContentText(String.format("Sharing %d device(s)", connections.size()));
+		}
+		
+		startForeground(NOTIFICATION_ID, builder.getNotification());
+	}
+	
 	@SuppressLint("UseSparseArrays")
 	@Override
 	public void onCreate() {
@@ -77,7 +108,10 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		IntentFilter filter = new IntentFilter(ACTION_USB_PERMISSION);
 		registerReceiver(usbReceiver, filter);
 		
-		new UsbIpServer().start(this);
+		server = new UsbIpServer();
+		server.start(this);
+		
+		updateNotification();
 	}
 	
 	@Override
@@ -562,6 +596,8 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 				new LinkedBlockingQueue<Runnable>(), new ThreadPoolExecutor.DiscardPolicy());
 		
 		connections.put(dev.getDeviceId(), context);
+		
+		updateNotification();
 		return true;
 	}
 
@@ -578,7 +614,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		}
 		
 		// Clear the this attachment's context
-		connections.put(dev.getDeviceId(), null);
+		connections.remove(dev.getDeviceId());
 		
 		// Release our claim to the interfaces
 		for (int i = 0; i < dev.getInterfaceCount(); i++) {
@@ -587,6 +623,8 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		
 		// Close the connection
 		context.devConn.close();
+		
+		updateNotification();
 	}
 	
 	class UrbContext {
