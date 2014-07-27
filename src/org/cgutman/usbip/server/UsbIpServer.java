@@ -40,12 +40,20 @@ public class UsbIpServer {
 		else if (inMsg.code == ProtoDefs.OP_REQ_IMPORT) {
 			ImportDeviceRequest imReq = (ImportDeviceRequest)inMsg;
 			ImportDeviceReply imReply = new ImportDeviceReply();
-			imReply.devInfo = handler.getDeviceByBusId(imReq.busid);
-			if (imReply.devInfo == null) {
-				imReply.status = ProtoDefs.ST_NA;
+			
+			res = handler.attachToDevice(imReq.busid);
+			if (res) {
+				imReply.devInfo = handler.getDeviceByBusId(imReq.busid);
+				if (imReply.devInfo == null) {
+					res = false;
+				}
+			}
+			
+			if (res) {
+				imReply.status = ProtoDefs.ST_OK;
 			}
 			else {
-				res = handler.attachToDevice(imReq.busid);
+				imReply.status = ProtoDefs.ST_NA;
 			}
 			outMsg = imReply;
 		}

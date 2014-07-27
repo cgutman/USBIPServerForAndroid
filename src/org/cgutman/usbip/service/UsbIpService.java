@@ -19,6 +19,8 @@ import org.cgutman.usbip.server.protocol.UsbIpInterface;
 import org.cgutman.usbip.server.protocol.dev.UsbIpDevicePacket;
 import org.cgutman.usbip.server.protocol.dev.UsbIpSubmitUrb;
 import org.cgutman.usbip.server.protocol.dev.UsbIpSubmitUrbReply;
+import org.cgutman.usbip.usb.DescriptorReader;
+import org.cgutman.usbip.usb.UsbDeviceDescriptor;
 
 import android.annotation.SuppressLint;
 import android.app.PendingIntent;
@@ -82,19 +84,105 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		// Not currently bindable
 		return null;
 	}
+	
+	// Here we're going to enumerate interfaces and endpoints
+	// to eliminate possible speeds until we've narrowed it
+	// down to only 1 which is our speed real speed. In a typical
+	// USB driver, the host controller knows the real speed but
+	// we need to derive it without HCI help.
+	private final static int FLAG_POSSIBLE_SPEED_LOW = 0x01;
+	private final static int FLAG_POSSIBLE_SPEED_FULL = 0x02;
+	private final static int FLAG_POSSIBLE_SPEED_HIGH = 0x04;
+	private int detectSpeed(UsbDevice dev, UsbDeviceDescriptor devDesc) {
+		int possibleSpeeds = FLAG_POSSIBLE_SPEED_LOW |
+				FLAG_POSSIBLE_SPEED_FULL |
+				FLAG_POSSIBLE_SPEED_HIGH;
+		
+		for (int i = 0; i < dev.getInterfaceCount(); i++) {
+			UsbInterface iface = dev.getInterface(i);
+			for (int j = 0; j < iface.getEndpointCount(); j++) {
+				UsbEndpoint endpoint = iface.getEndpoint(j);
+				if ((endpoint.getType() == UsbConstants.USB_ENDPOINT_XFER_BULK) ||
+					(endpoint.getType() == UsbConstants.USB_ENDPOINT_XFER_ISOC)) {
+					// Low speed devices can't implement bulk or iso endpoints
+					possibleSpeeds &= ~FLAG_POSSIBLE_SPEED_LOW;
+				}
+				
+				if (endpoint.getType() == UsbConstants.USB_ENDPOINT_XFER_CONTROL) {
+					if (endpoint.getMaxPacketSize() > 8) {
+						// Low speed devices can't use control transfer sizes larger than 8 bytes
+						possibleSpeeds &= ~FLAG_POSSIBLE_SPEED_LOW;
+					}
+					if (endpoint.getMaxPacketSize() < 64) {
+						// High speed devices can't use control transfer sizes smaller than 64 bytes
+						possibleSpeeds &= ~FLAG_POSSIBLE_SPEED_HIGH;
+					}
+				}
+				else if (endpoint.getType() == UsbConstants.USB_ENDPOINT_XFER_INT) {
+					if (endpoint.getMaxPacketSize() > 8) {
+						// Low speed devices can't use interrupt transfer sizes larger than 8 bytes
+						possibleSpeeds &= ~FLAG_POSSIBLE_SPEED_LOW;
+					}
+					if (endpoint.getMaxPacketSize() > 64) {
+						// Full speed devices can't use interrupt transfer sizes larger than 64 bytes
+						possibleSpeeds &= ~FLAG_POSSIBLE_SPEED_FULL;
+					}
+				}
+				else if (endpoint.getType() == UsbConstants.USB_ENDPOINT_XFER_BULK) {
+					// A bulk endpoint alone can accurately distiniguish between
+					// full and high speed devices
+					if (endpoint.getMaxPacketSize() == 512) {
+						// High speed devices can only use 512 byte bulk transfers
+						possibleSpeeds = FLAG_POSSIBLE_SPEED_HIGH;
+					}
+					else {
+						// Otherwise it must be full speed
+						possibleSpeeds = FLAG_POSSIBLE_SPEED_FULL;
+					}
+				}
+				else if (endpoint.getType() == UsbConstants.USB_ENDPOINT_XFER_ISOC) {
+					// If the transfer size is 1024, it must be high speed
+					if (endpoint.getMaxPacketSize() == 1024) {
+						possibleSpeeds = FLAG_POSSIBLE_SPEED_HIGH;
+					}
+				}
+			}
+		}
+		
+		if (devDesc != null) {
+			if (devDesc.bcdUSB < 0x200) {
+				// High speed only supported on USB 2.0 or higher
+				possibleSpeeds &= ~FLAG_POSSIBLE_SPEED_HIGH;
+			}
+		}
+		
+		// Return the lowest speed that we're compatible with
+		System.out.printf("Speed heuristics for device %d left us with 0x%x\n",
+				dev.getDeviceId(), possibleSpeeds);
+
+		if ((possibleSpeeds & FLAG_POSSIBLE_SPEED_LOW) != 0) {
+			return UsbIpDevice.USB_SPEED_LOW;
+		}
+		else if ((possibleSpeeds & FLAG_POSSIBLE_SPEED_FULL) != 0) {
+			return UsbIpDevice.USB_SPEED_FULL;
+		}
+		else if ((possibleSpeeds & FLAG_POSSIBLE_SPEED_HIGH) != 0) {
+			return UsbIpDevice.USB_SPEED_HIGH;
+		}
+		else {
+			// Something went very wrong in speed detection
+			return UsbIpDevice.USB_SPEED_UNKNOWN;
+		}
+	}
 
 	private UsbDeviceInfo getInfoForDevice(UsbDevice dev) {
 		UsbDeviceInfo info = new UsbDeviceInfo();
 		UsbIpDevice ipDev = new UsbIpDevice();
 		
-		// TODO: Fill bcdDevice, bConfigurationValue, bNumConfigurations,
-		// and speed from USB configuration descriptor
-		
 		ipDev.path = dev.getDeviceName();
 		ipDev.busid = String.format("%d", dev.getDeviceId());
 		ipDev.busnum = 0;
 		ipDev.devnum = dev.getDeviceId();
-		ipDev.speed = UsbIpDevice.USB_SPEED_UNKNOWN;
 		
 		ipDev.idVendor = (short) dev.getVendorId();
 		ipDev.idProduct = (short) dev.getProductId();
@@ -120,6 +208,19 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 			info.interfaces[i].bInterfaceSubClass = (byte) iface.getInterfaceSubclass();
 			info.interfaces[i].bInterfaceProtocol = (byte) iface.getInterfaceProtocol();
 		}
+		
+		AttachedDeviceContext context = connections.get(dev.getDeviceId());
+		UsbDeviceDescriptor devDesc = null;
+		if (context != null) {
+			// Since we're attached already, we can directly query the USB descriptors
+			// to fill some information that Android's USB API doesn't expose
+			devDesc = DescriptorReader.readDeviceDescriptor(context.devConn);
+			
+			ipDev.bcdDevice = devDesc.bcdDevice;
+			ipDev.bNumConfigurations = devDesc.bNumConfigurations;
+		}
+		
+		ipDev.speed = detectSpeed(dev, devDesc);
 		
 		return info;
 	}
