@@ -58,6 +58,8 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 	private WakeLock cpuWakeLock;
 	private WifiLock wifiLock;
 	
+	private static final boolean DEBUG = false;
+	
 	private static final int NOTIFICATION_ID = 100;
 	
 	private static final String ACTION_USB_PERMISSION =
@@ -343,14 +345,18 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 				}
 				
 				if (selectedEndpoint.getType() == UsbConstants.USB_ENDPOINT_XFER_BULK) {
-					System.out.printf("Bulk transfer - %d bytes %s on EP %d\n",
-							buff.array().length, msg.direction == UsbIpDevicePacket.USBIP_DIR_IN ? "in" : "out",
-									selectedEndpoint.getEndpointNumber());
+					if (DEBUG) {
+						System.out.printf("Bulk transfer - %d bytes %s on EP %d\n",
+								buff.array().length, msg.direction == UsbIpDevicePacket.USBIP_DIR_IN ? "in" : "out",
+										selectedEndpoint.getEndpointNumber());
+					}
 					
 					int res = XferUtils.doBulkTransfer(context.devConn,selectedEndpoint, buff.array(), msg.interval);
 					
-					System.out.printf("Bulk transfer complete with %d bytes (wanted %d)\n",
-							res, msg.transferBufferLength);
+					if (DEBUG) {
+						System.out.printf("Bulk transfer complete with %d bytes (wanted %d)\n",
+								res, msg.transferBufferLength);
+					}
 
 					if (res < 0) {
 						reply.status = ProtoDefs.ST_NA;
@@ -362,9 +368,12 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 					sendReply(s, reply, reply.status);
 				}
 				else if (selectedEndpoint.getType() == UsbConstants.USB_ENDPOINT_XFER_INT) {
-					System.out.printf("Interrupt transfer - %d bytes %s on EP %d\n",
-							msg.transferBufferLength, msg.direction == UsbIpDevicePacket.USBIP_DIR_IN ? "in" : "out",
-									selectedEndpoint.getEndpointNumber());
+					
+					if (DEBUG) {
+						System.out.printf("Interrupt transfer - %d bytes %s on EP %d\n",
+								msg.transferBufferLength, msg.direction == UsbIpDevicePacket.USBIP_DIR_IN ? "in" : "out",
+										selectedEndpoint.getEndpointNumber());
+					}
 										
 					UsbRequest req = new UsbRequest();
 					req.initialize(context.devConn, selectedEndpoint);
@@ -407,8 +416,10 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 					
 					req.close();
 					
-					System.out.printf("Interrupt transfer complete with %d bytes (wanted %d)\n",
-							reply.actualLength, originalMsg.transferBufferLength);
+					if (DEBUG) {
+						System.out.printf("Interrupt transfer complete with %d bytes (wanted %d)\n",
+								reply.actualLength, originalMsg.transferBufferLength);
+					}
 					if (reply.actualLength == 0) {
 						// Request actually failed
 						reply.status = ProtoDefs.ST_NA;
