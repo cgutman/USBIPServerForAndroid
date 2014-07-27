@@ -440,13 +440,17 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		
 		UsbDevice dev = getDevice(msg.devId);
 		if (dev == null) {
-			sendReply(s, reply, ProtoDefs.ST_NA);
+			// The device is gone, so terminate the client
+			cleanupDetachedDevice(msg.devId);
+			server.killClient(s);
 			return;
 		}
 		
 		AttachedDeviceContext context = connections.get(msg.devId);
 		if (context == null) {
-			sendReply(s, reply, ProtoDefs.ST_NA);
+			// This should never happen, but kill the connection if it does
+			cleanupDetachedDevice(msg.devId);
+			server.killClient(s);
 			return;
 		}
 		
@@ -609,6 +613,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		// Create a context for this attachment
 		AttachedDeviceContext context = new AttachedDeviceContext();
 		context.devConn = devConn;
+		context.device = dev;
 		
 		// Count all endpoints on all intefaces
 		int endpointCount = 0;
@@ -626,7 +631,27 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		updateNotification();
 		return true;
 	}
+	
+	private void cleanupDetachedDevice(int deviceId) {
+		AttachedDeviceContext context = connections.get(deviceId);
+		if (context == null) {
+			return;
+		}
+		
+		// Clear the this attachment's context
+		connections.remove(deviceId);
+		
+		// Release our claim to the interfaces
+		for (int i = 0; i < context.device.getInterfaceCount(); i++) {
+			context.devConn.releaseInterface(context.device.getInterface(i));
+		}
 
+		// Close the connection
+		context.devConn.close();
+
+		updateNotification();
+	}
+	
 	@Override
 	public void detachFromDevice(String busId) {
 		UsbDevice dev = getDevice(busId);
@@ -634,23 +659,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 			return;
 		}
 		
-		AttachedDeviceContext context = connections.get(dev.getDeviceId());
-		if (context == null) {
-			return;
-		}
-		
-		// Clear the this attachment's context
-		connections.remove(dev.getDeviceId());
-		
-		// Release our claim to the interfaces
-		for (int i = 0; i < dev.getInterfaceCount(); i++) {
-			context.devConn.releaseInterface(dev.getInterface(i));
-		}
-		
-		// Close the connection
-		context.devConn.close();
-		
-		updateNotification();
+		cleanupDetachedDevice(dev.getDeviceId());
 	}
 	
 	class UrbContext {
@@ -660,6 +669,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 	}
 	
 	class AttachedDeviceContext {
+		public UsbDevice device;
 		public UsbDeviceConnection devConn;
 		public ThreadPoolExecutor requestPool;
 	}
