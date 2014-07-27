@@ -5,7 +5,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.ArrayList;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.cgutman.usbip.server.protocol.ProtoDefs;
 import org.cgutman.usbip.server.protocol.cli.CommonPacket;
@@ -18,9 +19,10 @@ import org.cgutman.usbip.server.protocol.dev.UsbIpSubmitUrb;
 public class UsbIpServer {
 	public static final int PORT = 3240;
 	
-	private ArrayList<Thread> threads = new ArrayList<Thread>();
 	private UsbRequestHandler handler;
+	private Thread serverThread;
 	private ServerSocket serverSock;
+	private ConcurrentHashMap<Socket, Thread> connections = new ConcurrentHashMap<Socket, Thread>();
 	
 	// Returns true if a device is now attached
 	private boolean handleRequest(InputStream in, OutputStream out) throws IOException {
@@ -66,18 +68,31 @@ public class UsbIpServer {
 		return res;
 	}
 	
-	private boolean handleDevRequest(InputStream in, OutputStream out) throws IOException {
-		UsbIpDevicePacket inMsg = UsbIpDevicePacket.read(in);
+	private boolean handleDevRequest(Socket s) throws IOException {
+		UsbIpDevicePacket inMsg = UsbIpDevicePacket.read(s.getInputStream());
 		
-		//System.out.println(inMsg);
 		if (inMsg.command == UsbIpDevicePacket.USBIP_CMD_SUBMIT) {
-			handler.submitUrbRequest(out, (UsbIpSubmitUrb) inMsg);
+			handler.submitUrbRequest(s, (UsbIpSubmitUrb) inMsg);
 		}
 		else {
 			return false;
 		}
 		
 		return true;
+	}
+	
+	public void killClient(Socket s) {
+		Thread t = connections.remove(s);
+		
+		try {
+			s.close();
+		} catch (IOException e) {}
+		
+		t.interrupt();
+		
+		try {
+			t.join();
+		} catch (InterruptedException e) {}
 	}
 	
 	private void handleClient(final Socket s) {
@@ -92,7 +107,7 @@ public class UsbIpServer {
 					OutputStream out = s.getOutputStream();
 					while (!isInterrupted()) {
 						if (handleRequest(in, out)) {
-							while (handleDevRequest(in, out));
+							while (handleDevRequest(s));
 						}
 					}
 				} catch (IOException e) {
@@ -104,8 +119,8 @@ public class UsbIpServer {
 				}
 			}
 		};
-		
-		threads.add(t);
+
+		connections.put(s, t);
 		t.start();
 	}
 	
@@ -127,7 +142,8 @@ public class UsbIpServer {
 				}
 			}
 		};
-		threads.add(t);
+		
+		serverThread = t;
 		t.start();
 	}
 	
@@ -136,13 +152,29 @@ public class UsbIpServer {
 			try {
 				serverSock.close();
 			} catch (IOException e) {}
+			
+			serverSock = null;
 		}
 		
-		for (Thread t : threads) {
-			t.interrupt();
+		if (serverThread != null) {
+			serverThread.interrupt();
 			
 			try {
-				t.join();
+				serverThread.join();
+			} catch (InterruptedException e) {}
+			
+			serverThread = null;
+		}
+		
+		for (Map.Entry<Socket, Thread> entry : connections.entrySet()) {
+			try {
+				entry.getKey().close();
+			} catch (IOException e) {}
+			
+			entry.getValue().interrupt();
+			
+			try {
+				entry.getValue().join();
 			} catch (InterruptedException e) {}
 		}
 	}

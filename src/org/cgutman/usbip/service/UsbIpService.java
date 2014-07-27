@@ -1,7 +1,7 @@
 package org.cgutman.usbip.service;
 
 import java.io.IOException;
-import java.io.OutputStream;
+import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
@@ -40,16 +40,23 @@ import android.hardware.usb.UsbEndpoint;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
 import android.hardware.usb.UsbRequest;
+import android.net.wifi.WifiManager;
+import android.net.wifi.WifiManager.WifiLock;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.PowerManager;
+import android.os.PowerManager.WakeLock;
 import android.util.SparseArray;
 
 public class UsbIpService extends Service implements UsbRequestHandler {
 	
 	private UsbManager usbManager;
+	
 	private SparseArray<AttachedDeviceContext> connections;
 	private SparseArray<Boolean> permission;
 	private UsbIpServer server;
+	private WakeLock cpuWakeLock;
+	private WifiLock wifiLock;
 	
 	private static final int NOTIFICATION_ID = 100;
 	
@@ -100,7 +107,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 	public void onCreate() {
 		super.onCreate();
 		
-		usbManager = (UsbManager) getSystemService(Context.USB_SERVICE);
+		usbManager = (UsbManager) getSystemService(Context.USB_SERVICE);		
 		connections = new SparseArray<AttachedDeviceContext>();
 		permission = new SparseArray<Boolean>();
 		
@@ -108,10 +115,29 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		IntentFilter filter = new IntentFilter(ACTION_USB_PERMISSION);
 		registerReceiver(usbReceiver, filter);
 		
+		PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+		WifiManager wm = (WifiManager) getSystemService(Context.WIFI_SERVICE);
+		
+		cpuWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "USB/IP Service");
+		cpuWakeLock.acquire();
+		
+		wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "USB/IP Service");
+		wifiLock.acquire();
+		
 		server = new UsbIpServer();
 		server.start(this);
 		
 		updateNotification();
+	}
+	
+	public void onDestroy() {
+		super.onDestroy();
+		
+		server.stop();
+		unregisterReceiver(usbReceiver);
+		
+		wifiLock.release();
+		cpuWakeLock.release();
 	}
 	
 	@Override
@@ -289,12 +315,12 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		}
 	}
 	
-	private static void sendReply(OutputStream out, UsbIpSubmitUrbReply reply, int status) {
+	private static void sendReply(Socket s, UsbIpSubmitUrbReply reply, int status) {
 		reply.status = status;
 		try {
 			// We need to synchronize to avoid writing on top of ourselves
-			synchronized (out) {
-				out.write(reply.serialize());
+			synchronized (s) {
+				s.getOutputStream().write(reply.serialize());
 			}
 		} catch (IOException e) {
 			e.printStackTrace();
@@ -303,7 +329,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 	
 	// FIXME: This dispatching could use some refactoring so we don't have to pass
 	// a million parameters to this guy
-	private void dispatchRequest(final AttachedDeviceContext context, final OutputStream replyOut,
+	private void dispatchRequest(final AttachedDeviceContext context, final Socket s,
 			final UsbEndpoint selectedEndpoint, final ByteBuffer buff, final UsbIpSubmitUrb msg) {
 		context.requestPool.submit(new Runnable() {
 			@Override
@@ -333,7 +359,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 						reply.actualLength = res;
 						reply.status = ProtoDefs.ST_OK;
 					}
-					sendReply(replyOut, reply, reply.status);
+					sendReply(s, reply, reply.status);
 				}
 				else if (selectedEndpoint.getType() == UsbConstants.USB_ENDPOINT_XFER_INT) {
 					System.out.printf("Interrupt transfer - %d bytes %s on EP %d\n",
@@ -352,7 +378,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 					req.setClientData(urbCtxt);
 					if (!req.queue(buff, msg.transferBufferLength)) {
 						System.err.println("Failed to queue request");
-						sendReply(replyOut, reply, ProtoDefs.ST_NA);
+						sendReply(s, reply, ProtoDefs.ST_NA);
 						req.close();
 						return;
 					}
@@ -397,30 +423,30 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 					// so I'm not going to...
 					reply.startFrame = 0;
 					
-					sendReply(replyOut, reply, reply.status);
+					sendReply(s, reply, reply.status);
 				}
 				else {
 					System.err.println("Unsupported endpoint type: "+selectedEndpoint.getType());
-					sendReply(replyOut, reply, ProtoDefs.ST_NA);
+					sendReply(s, reply, ProtoDefs.ST_NA);
 				}
 			}
 		});
 	}
 
 	@Override
-	public void submitUrbRequest(OutputStream replyOut, UsbIpSubmitUrb msg) {
+	public void submitUrbRequest(Socket s, UsbIpSubmitUrb msg) {
 		UsbIpSubmitUrbReply reply = new UsbIpSubmitUrbReply(msg.seqNum,
 				msg.devId, msg.direction, msg.ep);
 		
 		UsbDevice dev = getDevice(msg.devId);
 		if (dev == null) {
-			sendReply(replyOut, reply, ProtoDefs.ST_NA);
+			sendReply(s, reply, ProtoDefs.ST_NA);
 			return;
 		}
 		
 		AttachedDeviceContext context = connections.get(msg.devId);
 		if (context == null) {
-			sendReply(replyOut, reply, ProtoDefs.ST_NA);
+			sendReply(s, reply, ProtoDefs.ST_NA);
 			return;
 		}
 		
@@ -451,7 +477,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 				reply.status = ProtoDefs.ST_OK;
 			}
 			
-			sendReply(replyOut, reply, reply.status);
+			sendReply(s, reply, reply.status);
 			return;
 		}
 		else {
@@ -490,7 +516,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 			
 			if (selectedEndpoint == null) {
 				System.err.println("EP not found: "+msg.ep);
-				sendReply(replyOut, reply, ProtoDefs.ST_NA);
+				sendReply(s, reply, ProtoDefs.ST_NA);
 				return;
 			}
 			
@@ -505,7 +531,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 			}
 			
 			// Dispatch this request asynchronously
-			dispatchRequest(context, replyOut, selectedEndpoint, buff, msg);
+			dispatchRequest(context, s, selectedEndpoint, buff, msg);
 		}
 	}
 	
