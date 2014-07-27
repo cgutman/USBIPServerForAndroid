@@ -21,6 +21,7 @@ import org.cgutman.usbip.server.protocol.dev.UsbIpSubmitUrb;
 import org.cgutman.usbip.server.protocol.dev.UsbIpSubmitUrbReply;
 import org.cgutman.usbip.usb.DescriptorReader;
 import org.cgutman.usbip.usb.UsbDeviceDescriptor;
+import org.cgutman.usbip.usb.XferUtils;
 
 import android.annotation.SuppressLint;
 import android.app.PendingIntent;
@@ -286,46 +287,18 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 							buff.array().length, msg.direction == UsbIpDevicePacket.USBIP_DIR_IN ? "in" : "out",
 									selectedEndpoint.getEndpointNumber());
 					
-					// Bulk is handled via a helper method
-					byte[] bulkBuffer = buff.array();
-					
-					int bytesTransferred = 0;
-					while (bytesTransferred < bulkBuffer.length) {
-						byte[] remainingBuffer = new byte[bulkBuffer.length - bytesTransferred];
-						
-						if (msg.direction == UsbIpDevicePacket.USBIP_DIR_OUT) {
-							// Copy input data into the new buffer
-							System.arraycopy(bulkBuffer, bytesTransferred, remainingBuffer, 0, remainingBuffer.length);
-						}
-						
-						int res = context.devConn.bulkTransfer(selectedEndpoint, remainingBuffer,
-								remainingBuffer.length, msg.interval);
-						if (res < 0) {
-							// Failed transfer terminates the bulk transfer
-							System.err.println("Bulk Xfer failed: "+res);
-							sendReply(replyOut, reply, ProtoDefs.ST_NA);
-							return;
-						}
-						
-						if (msg.direction == UsbIpDevicePacket.USBIP_DIR_IN) {
-							// Copy output data into the original buffer
-							System.arraycopy(remainingBuffer, 0, bulkBuffer, bytesTransferred, res);
-						}
-						
-						bytesTransferred += res;
-						
-						if (res < selectedEndpoint.getMaxPacketSize()) {
-							// A packet less than the maximum size for this endpoint
-							// indicates the transfer has ended
-							break;
-						}
-					}
+					int res = XferUtils.doBulkTransfer(context.devConn,selectedEndpoint, buff.array(), msg.interval);
 					
 					System.out.printf("Bulk transfer complete with %d bytes (wanted %d)\n",
-							bytesTransferred, msg.transferBufferLength);
+							res, msg.transferBufferLength);
 
-					reply.actualLength = bytesTransferred;
-					reply.status = ProtoDefs.ST_OK;
+					if (res < 0) {
+						reply.status = ProtoDefs.ST_NA;
+					}
+					else {
+						reply.actualLength = res;
+						reply.status = ProtoDefs.ST_OK;
+					}
 					sendReply(replyOut, reply, reply.status);
 				}
 				else if (selectedEndpoint.getType() == UsbConstants.USB_ENDPOINT_XFER_INT) {
@@ -429,25 +402,22 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 			short value = bb.getShort();
 			short index = bb.getShort();
 			short length = bb.getShort();
-						
-			System.out.printf("%x %x %x %x %x\n",
-					requestType, request, value, index, length);
 			
 			if (length != 0) {
 				reply.inData = new byte[length];
 			}
-			int res = devConn.controlTransfer(requestType, request, value,
-					index,
-					(requestType & 0x80) != 0 ? reply.inData : msg.outData,
-					length, msg.interval);
+			
+			int res = XferUtils.doControlTransfer(devConn, requestType, request, value, index,
+					(requestType & 0x80) != 0 ? reply.inData : msg.outData, length, msg.interval);
 			if (res < 0) {
-				System.err.println("Control Xfer failed: "+res);
-				sendReply(replyOut, reply, ProtoDefs.ST_NA);
-				return;
+				reply.status = ProtoDefs.ST_NA;
+			}
+			else {
+				reply.actualLength = res;
+				reply.status = ProtoDefs.ST_OK;
 			}
 			
-			reply.actualLength = res;
-			sendReply(replyOut, reply, ProtoDefs.ST_OK);
+			sendReply(replyOut, reply, reply.status);
 			return;
 		}
 		else {

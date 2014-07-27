@@ -13,7 +13,7 @@ public class DescriptorReader {
 		byte[] descriptorBuffer = new byte[UsbDeviceDescriptor.DESCRIPTOR_SIZE];
 		
 		
-		int res = devConn.controlTransfer(GET_DESCRIPTOR_REQUEST_TYPE,
+		int res = XferUtils.doControlTransfer(devConn, GET_DESCRIPTOR_REQUEST_TYPE,
 				GET_DESCRIPTOR_REQUEST,
 				(DEVICE_DESCRIPTOR_TYPE << 8) | 0x00, // Devices only have 1 descriptor
 				0, descriptorBuffer, descriptorBuffer.length, 0);
