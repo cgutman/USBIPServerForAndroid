@@ -21,7 +21,7 @@ public class UsbIpServer {
 	private UsbRequestHandler handler;
 	private Thread serverThread;
 	private ServerSocket serverSock;
-	private ConcurrentHashMap<Socket, Thread> connections = new ConcurrentHashMap<Socket, Thread>();
+	private ConcurrentHashMap<Socket, Thread> connections = new ConcurrentHashMap<>();
 	
 	// Returns true if a device is now attached
 	private boolean handleRequest(Socket s) throws IOException {

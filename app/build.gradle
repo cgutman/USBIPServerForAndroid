@@ -2,7 +2,7 @@ apply plugin: 'com.android.application'
 
 android {
     namespace "org.cgutman.usbipserverforandroid"
-    compileSdk 19
+    compileSdk 34
 
     defaultConfig {
         applicationId "org.cgutman.usbipserverforandroid"

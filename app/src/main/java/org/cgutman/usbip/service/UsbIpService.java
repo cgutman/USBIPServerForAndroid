@@ -45,6 +45,7 @@ import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
 import android.net.wifi.WifiManager;
 import android.net.wifi.WifiManager.WifiLock;
+import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
 import android.os.PowerManager.WakeLock;
@@ -82,7 +83,6 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		}
 	};
 	
-	@SuppressWarnings("deprecation")
 	private void updateNotification() {
 		Intent intent = new Intent(this, UsbIpConfig.class);
 		intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
@@ -113,21 +113,35 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		super.onCreate();
 		
 		usbManager = (UsbManager) getSystemService(Context.USB_SERVICE);		
-		connections = new SparseArray<AttachedDeviceContext>();
-		permission = new SparseArray<Boolean>();
-		socketMap = new HashMap<Socket, AttachedDeviceContext>();
-		
-		usbPermissionIntent = PendingIntent.getBroadcast(this, 0, new Intent(ACTION_USB_PERMISSION), 0);
+		connections = new SparseArray<>();
+		permission = new SparseArray<>();
+		socketMap = new HashMap<>();
+
+		int intentFlags = 0;
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+			// This PendingIntent must be mutable to allow the framework to populate EXTRA_DEVICE and EXTRA_PERMISSION_GRANTED.
+			intentFlags |= PendingIntent.FLAG_MUTABLE;
+		}
+
+		Intent i = new Intent(ACTION_USB_PERMISSION);
+		i.setPackage(getPackageName());
+
+		usbPermissionIntent = PendingIntent.getBroadcast(this, 0, i, intentFlags);
 		IntentFilter filter = new IntentFilter(ACTION_USB_PERMISSION);
-		registerReceiver(usbReceiver, filter);
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+			registerReceiver(usbReceiver, filter, RECEIVER_NOT_EXPORTED);
+		}
+		else {
+			registerReceiver(usbReceiver, filter);
+		}
 		
 		PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-		WifiManager wm = (WifiManager) getSystemService(Context.WIFI_SERVICE);
+		WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
 		
-		cpuWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "USB/IP Service");
+		cpuWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "USBIPServerForAndroid:Service");
 		cpuWakeLock.acquire();
 		
-		wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "USB/IP Service");
+		wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "USBIPServerForAndroid:Service");
 		wifiLock.acquire();
 		
 		server = new UsbIpServer();
@@ -327,7 +341,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 	
 	@Override
 	public List<UsbDeviceInfo> getDevices() {
-		ArrayList<UsbDeviceInfo> list = new ArrayList<UsbDeviceInfo>();
+		ArrayList<UsbDeviceInfo> list = new ArrayList<>();
 		
 		for (UsbDevice dev : usbManager.getDeviceList().values()) {
 			AttachedDeviceContext context = connections.get(dev.getDeviceId());
@@ -699,11 +713,11 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		
 		// Use a thread pool with a thread per endpoint
 		context.requestPool = new ThreadPoolExecutor(endpointCount, endpointCount,
-				Long.MAX_VALUE, TimeUnit.DAYS, 
-				new LinkedBlockingQueue<Runnable>(), new ThreadPoolExecutor.DiscardPolicy());
+				Long.MAX_VALUE, TimeUnit.DAYS,
+				new LinkedBlockingQueue<>(), new ThreadPoolExecutor.DiscardPolicy());
 		
 		// Create the active message set
-		context.activeMessages = new HashSet<UsbIpSubmitUrb>();
+		context.activeMessages = new HashSet<>();
 		
 		connections.put(dev.getDeviceId(), context);
 		socketMap.put(s, context);
