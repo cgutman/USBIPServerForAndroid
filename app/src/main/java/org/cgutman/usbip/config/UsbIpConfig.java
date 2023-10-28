@@ -3,22 +3,35 @@ package org.cgutman.usbip.config;
 import org.cgutman.usbip.service.UsbIpService;
 import org.cgutman.usbipserverforandroid.R;
 
-import android.app.Activity;
+import android.Manifest;
 import android.app.ActivityManager;
 import android.app.ActivityManager.RunningServiceInfo;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.widget.Button;
 import android.widget.TextView;
 
-public class UsbIpConfig extends Activity {
+import androidx.activity.ComponentActivity;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.core.content.ContextCompat;
+
+public class UsbIpConfig extends ComponentActivity {
 	private Button serviceButton;
 	private TextView serviceStatus;
 	
 	private boolean running;
+
+	private ActivityResultLauncher<String> requestPermissionLauncher =
+			registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
+				// We don't actually care if the permission is granted or not. We will launch the service anyway.
+				startService(new Intent(UsbIpConfig.this, UsbIpService.class));
+			});
 	
 	private void updateStatus() {
 		if (running) {
@@ -61,7 +74,13 @@ public class UsbIpConfig extends Activity {
 					stopService(new Intent(UsbIpConfig.this, UsbIpService.class));
 				}
 				else {
-					startService(new Intent(UsbIpConfig.this, UsbIpService.class));
+					if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+						if (ContextCompat.checkSelfPermission(UsbIpConfig.this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+							startService(new Intent(UsbIpConfig.this, UsbIpService.class));
+						} else {
+							requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
+						}
+					}
 				}
 				
 				running = !running;

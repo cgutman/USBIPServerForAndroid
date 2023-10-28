@@ -53,6 +53,8 @@ import android.os.PowerManager;
 import android.os.PowerManager.WakeLock;
 import android.util.SparseArray;
 
+import androidx.core.app.NotificationCompat;
+
 public class UsbIpService extends Service implements UsbRequestHandler {
 	
 	private UsbManager usbManager;
@@ -97,22 +99,16 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		}
 
 		PendingIntent pendIntent = PendingIntent.getActivity(this, 0, intent, intentFlags);
-		
-		Notification.Builder builder = new Notification.Builder(this)
+
+		NotificationCompat.Builder builder = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID)
+				.setSmallIcon(R.drawable.notification_icon)
+				.setOngoing(true)
+				.setSilent(true)
 				.setTicker("USB/IP Server Running")
 				.setContentTitle("USB/IP Server Running")
 				.setAutoCancel(false)
-				.setOngoing(true)
-				.setSmallIcon(R.drawable.notification_icon)
-				.setContentIntent(pendIntent);
-
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-			builder.setChannelId(CHANNEL_ID);
-		}
-
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-			builder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
-		}
+				.setContentIntent(pendIntent)
+				.setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE);
 		
 		if (connections.size() == 0) {
 			builder.setContentText("No devices currently shared");
@@ -121,7 +117,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 			builder.setContentText(String.format("Sharing %d device(s)", connections.size()));
 		}
 		
-		startForeground(NOTIFICATION_ID, builder.getNotification());
+		startForeground(NOTIFICATION_ID, builder.build());
 	}
 	
 	@SuppressLint("UseSparseArrays")
