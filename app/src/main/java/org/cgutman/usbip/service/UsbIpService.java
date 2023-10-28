@@ -30,7 +30,6 @@ import org.cgutman.usbip.usb.XferUtils;
 import org.cgutman.usbipserverforandroid.R;
 
 import android.annotation.SuppressLint;
-import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -819,7 +818,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 					-22); // EINVAL
 	}
 	
-	class AttachedDeviceContext {
+	static class AttachedDeviceContext {
 		public UsbDevice device;
 		public UsbDeviceConnection devConn;
 		public ThreadPoolExecutor requestPool;

@@ -38,13 +38,12 @@ public class UsbIpSubmitUrbReply extends UsbIpDevicePacket {
 	
 	@Override
 	public String toString() {
-		StringBuilder sb = new StringBuilder();
-		sb.append(super.toString());
-		sb.append(String.format("Status: 0x%x\n", status));
-		sb.append(String.format("Actual length: %d\n", actualLength));
-		sb.append(String.format("Start frame: %d\n", startFrame));
-		sb.append(String.format("Number Of Packets: %d\n", numberOfPackets));
-		sb.append(String.format("Error Count: %d\n", errorCount));
-		return sb.toString();
+        String sb = super.toString() +
+                String.format("Status: 0x%x\n", status) +
+                String.format("Actual length: %d\n", actualLength) +
+                String.format("Start frame: %d\n", startFrame) +
+                String.format("Number Of Packets: %d\n", numberOfPackets) +
+                String.format("Error Count: %d\n", errorCount);
+		return sb;
 	}
 }

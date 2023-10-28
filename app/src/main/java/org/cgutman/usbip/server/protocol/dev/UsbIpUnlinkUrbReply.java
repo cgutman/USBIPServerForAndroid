@@ -20,9 +20,8 @@ public class UsbIpUnlinkUrbReply extends UsbIpDevicePacket {
 	
 	@Override
 	public String toString() {
-		StringBuilder sb = new StringBuilder();
-		sb.append(super.toString());
-		sb.append(String.format("Status: 0x%x\n", status));
-		return sb.toString();
+        String sb = super.toString() +
+                String.format("Status: 0x%x\n", status);
+		return sb;
 	}
 }

@@ -56,14 +56,13 @@ public class UsbIpSubmitUrb extends UsbIpDevicePacket {
 	
 	@Override
 	public String toString() {
-		StringBuilder sb = new StringBuilder();
-		sb.append(super.toString());
-		sb.append(String.format("Xfer flags: 0x%x\n", transferFlags));
-		sb.append(String.format("Xfer length: %d\n", transferBufferLength));
-		sb.append(String.format("Start frame: %d\n", startFrame));
-		sb.append(String.format("Number Of Packets: %d\n", numberOfPackets));
-		sb.append(String.format("Interval: %d\n", interval));
-		return sb.toString();
+		String sb = super.toString() +
+				String.format("Xfer flags: 0x%x\n", transferFlags) +
+				String.format("Xfer length: %d\n", transferBufferLength) +
+				String.format("Start frame: %d\n", startFrame) +
+				String.format("Number Of Packets: %d\n", numberOfPackets) +
+				String.format("Interval: %d\n", interval);
+		return sb;
 	}
 
 	@Override

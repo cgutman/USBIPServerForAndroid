@@ -35,10 +35,9 @@ public class UsbIpUnlinkUrb extends UsbIpDevicePacket {
 	
 	@Override
 	public String toString() {
-		StringBuilder sb = new StringBuilder();
-		sb.append(super.toString());
-		sb.append(String.format("Sequence number to unlink: %d\n", seqNumToUnlink));
-		return sb.toString();
+        String sb = super.toString() +
+                String.format("Sequence number to unlink: %d\n", seqNumToUnlink);
+		return sb;
 	}
 
 	@Override

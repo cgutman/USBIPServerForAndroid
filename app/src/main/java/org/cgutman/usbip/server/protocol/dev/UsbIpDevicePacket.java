@@ -70,13 +70,12 @@ public abstract class UsbIpDevicePacket {
 	
 	@Override
 	public String toString() {
-		StringBuilder sb = new StringBuilder();
-		sb.append(String.format("Command: 0x%x\n", command));
-		sb.append(String.format("Seq: %d\n", seqNum));
-		sb.append(String.format("Dev ID: 0x%x\n", devId));
-		sb.append(String.format("Direction: %d\n", direction));
-		sb.append(String.format("Endpoint: %d\n", ep));
-		return sb.toString();
+		String sb = String.format("Command: 0x%x\n", command) +
+				String.format("Seq: %d\n", seqNum) +
+				String.format("Dev ID: 0x%x\n", devId) +
+				String.format("Direction: %d\n", direction) +
+				String.format("Endpoint: %d\n", ep);
+		return sb;
 	}
 	
 	public byte[] serialize() {
