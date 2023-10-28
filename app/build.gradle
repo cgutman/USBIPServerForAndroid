@@ -1,0 +1,25 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace "org.cgutman.usbipserverforandroid"
+    compileSdk 19
+
+    defaultConfig {
+        applicationId "org.cgutman.usbipserverforandroid"
+        minSdk 12
+        targetSdk 19
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.txt'
+        }
+    }
+
+    externalNativeBuild {
+        ndkBuild {
+            path "src/main/jni/Android.mk"
+        }
+    }
+}
