@@ -31,6 +31,8 @@ import org.cgutman.usbipserverforandroid.R;
 
 import android.annotation.SuppressLint;
 import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.BroadcastReceiver;
@@ -65,6 +67,8 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 	private static final boolean DEBUG = false;
 	
 	private static final int NOTIFICATION_ID = 100;
+
+	private final static String CHANNEL_ID = "serviceInfo";
 	
 	private static final String ACTION_USB_PERMISSION =
 		    "org.cgutman.usbip.USB_PERMISSION";
@@ -86,16 +90,29 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 	private void updateNotification() {
 		Intent intent = new Intent(this, UsbIpConfig.class);
 		intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-		PendingIntent pendIntent = PendingIntent.getActivity(this, 0, intent, 0);
+
+		int intentFlags = 0;
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+			intentFlags |= PendingIntent.FLAG_IMMUTABLE;
+		}
+
+		PendingIntent pendIntent = PendingIntent.getActivity(this, 0, intent, intentFlags);
 		
-		Notification.Builder builder = new Notification.Builder(this);
-		builder
-		.setTicker("USB/IP Server Running")
-		.setContentTitle("USB/IP Server Running")
-		.setAutoCancel(false)
-		.setOngoing(true)
-		.setSmallIcon(R.drawable.notification_icon)
-		.setContentIntent(pendIntent);
+		Notification.Builder builder = new Notification.Builder(this)
+				.setTicker("USB/IP Server Running")
+				.setContentTitle("USB/IP Server Running")
+				.setAutoCancel(false)
+				.setOngoing(true)
+				.setSmallIcon(R.drawable.notification_icon)
+				.setContentIntent(pendIntent);
+
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+			builder.setChannelId(CHANNEL_ID);
+		}
+
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+			builder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
+		}
 		
 		if (connections.size() == 0) {
 			builder.setContentText("No devices currently shared");
@@ -146,6 +163,12 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		
 		server = new UsbIpServer();
 		server.start(this);
+
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+			NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "Service Info", NotificationManager.IMPORTANCE_DEFAULT);
+			NotificationManager notificationManager = getSystemService(NotificationManager.class);
+			notificationManager.createNotificationChannel(channel);
+		}
 		
 		updateNotification();
 	}

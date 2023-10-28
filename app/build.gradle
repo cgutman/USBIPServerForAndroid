@@ -7,7 +7,7 @@ android {
     defaultConfig {
         applicationId "org.cgutman.usbipserverforandroid"
         minSdk 12
-        targetSdk 19
+        targetSdk 34
     }
 
     buildTypes {
