@@ -52,9 +52,10 @@ public class XferUtils {
 			
 			bytesTransferred += res;
 			
-			if (res < endpoint.getMaxPacketSize()) {
+			if (res != endpoint.getMaxPacketSize()) {
 				// A packet less than the maximum size for this endpoint
 				// indicates the transfer has ended
+				// For some devices (yubikey) the res is greater than max packet size
 				break;
 			}
 		}

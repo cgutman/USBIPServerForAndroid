@@ -558,10 +558,11 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 			context.activeMessages.add(msg);
 			
 			int res;
-			
+			boolean isDeviceToHost = (requestType & 0x80) != 0;
+
 			do {
 				res = XferUtils.doControlTransfer(devConn, requestType, request, value, index,
-					(requestType & 0x80) != 0 ? reply.inData : msg.outData, length, 1000);
+					isDeviceToHost ? reply.inData : msg.outData, length, 1000);
 				
 				if (context.requestPool.isShutdown()) {
 					// Bail if the queue is being torn down
@@ -578,7 +579,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 				reply.status = res;
 			}
 			else {
-				reply.actualLength = res;
+				reply.actualLength = isDeviceToHost ? res : 0;
 				reply.status = ProtoDefs.ST_OK;
 			}
 			
