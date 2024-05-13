@@ -340,10 +340,15 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		ipDev.bDeviceClass = (byte) dev.getDeviceClass();
 		ipDev.bDeviceSubClass = (byte) dev.getDeviceSubclass();
 		ipDev.bDeviceProtocol = (byte) dev.getDeviceProtocol();
-		
+
 		ipDev.bConfigurationValue = 0;
-		ipDev.bNumConfigurations = 1;
-		
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+			ipDev.bNumConfigurations = (byte) dev.getConfigurationCount();
+		}
+		else {
+			ipDev.bNumConfigurations = 1;
+		}
+
 		ipDev.bNumInterfaces = (byte) dev.getInterfaceCount();
 		
 		info.dev = ipDev;
@@ -575,21 +580,29 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 			context.activeMessages.add(msg);
 			
 			int res;
-			
-			do {
-				res = XferUtils.doControlTransfer(devConn, requestType, request, value, index,
-					(requestType & 0x80) != 0 ? reply.inData : msg.outData, length, 1000);
-				
-				if (context.requestPool.isShutdown()) {
-					// Bail if the queue is being torn down
-					return;
-				}
-				
-				if (!context.activeMessages.contains(msg)) {
-					// Somebody cancelled the URB, return without responding
-					return;
-				}
-			} while (res == -110); // ETIMEDOUT
+
+			// We have to handle certain control requests (SET_CONFIGURATION/SET_INTERFACE) by calling
+			// Android APIs rather than just submitting the URB directly to the device
+			if (!UsbControlHelper.handleInternalControlTransfer(dev, devConn, requestType, request, value, index)) {
+				do {
+					res = XferUtils.doControlTransfer(devConn, requestType, request, value, index,
+							(requestType & 0x80) != 0 ? reply.inData : msg.outData, length, 1000);
+
+					if (context.requestPool.isShutdown()) {
+						// Bail if the queue is being torn down
+						return;
+					}
+
+					if (!context.activeMessages.contains(msg)) {
+						// Somebody cancelled the URB, return without responding
+						return;
+					}
+				} while (res == -110); // ETIMEDOUT
+			}
+			else {
+				// Handled the request internally
+				res = 0;
+			}
 
 			if (res < 0) {
 				reply.status = res;
@@ -731,7 +744,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		// Claim all interfaces since we don't know which one the client wants
 		for (int i = 0; i < dev.getInterfaceCount(); i++) {
 			if (!devConn.claimInterface(dev.getInterface(i), true)) {
-				System.err.println("Unabled to claim interface "+dev.getInterface(i).getId());
+				System.err.println("Unable to claim interface "+dev.getInterface(i).getId());
 			}
 		}
 		
