@@ -342,12 +342,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		ipDev.bDeviceProtocol = (byte) dev.getDeviceProtocol();
 
 		ipDev.bConfigurationValue = 0;
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-			ipDev.bNumConfigurations = (byte) dev.getConfigurationCount();
-		}
-		else {
-			ipDev.bNumConfigurations = 1;
-		}
+		ipDev.bNumConfigurations = (byte) dev.getConfigurationCount();
 
 		ipDev.bNumInterfaces = (byte) dev.getInterfaceCount();
 		
@@ -371,7 +366,6 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 			devDesc = UsbControlHelper.readDeviceDescriptor(context.devConn);
 			
 			ipDev.bcdDevice = devDesc.bcdDevice;
-			ipDev.bNumConfigurations = devDesc.bNumConfigurations;
 		}
 		
 		ipDev.speed = detectSpeed(dev, devDesc);

@@ -78,25 +78,23 @@ public class UsbControlHelper {
 		value &= 0xFFFF;
 		index &= 0xFFFF;
 
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-			if (requestType == SET_CONFIGURATION_REQUEST_TYPE && request == SET_CONFIGURATION_REQUEST) {
-				for (int i = 0; i < dev.getConfigurationCount(); i++) {
-					UsbConfiguration config = dev.getConfiguration(i);
-					if (config.getId() == value) {
-						devConn.setConfiguration(config);
-						System.out.println("Handled SET_CONFIGURATION via Android API");
-						return true;
-					}
+		if (requestType == SET_CONFIGURATION_REQUEST_TYPE && request == SET_CONFIGURATION_REQUEST) {
+			for (int i = 0; i < dev.getConfigurationCount(); i++) {
+				UsbConfiguration config = dev.getConfiguration(i);
+				if (config.getId() == value) {
+					devConn.setConfiguration(config);
+					System.out.println("Handled SET_CONFIGURATION via Android API");
+					return true;
 				}
 			}
-			else if (requestType == SET_INTERFACE_REQUEST_TYPE && request == SET_INTERFACE_REQUEST) {
-				for (int i = 0; i < dev.getInterfaceCount(); i++) {
-					UsbInterface iface = dev.getInterface(i);
-					if (iface.getId() == index && iface.getAlternateSetting() == value) {
-						devConn.setInterface(iface);
-						System.out.println("Handled SET_INTERFACE via Android API");
-						return true;
-					}
+		}
+		else if (requestType == SET_INTERFACE_REQUEST_TYPE && request == SET_INTERFACE_REQUEST) {
+			for (int i = 0; i < dev.getInterfaceCount(); i++) {
+				UsbInterface iface = dev.getInterface(i);
+				if (iface.getId() == index && iface.getAlternateSetting() == value) {
+					devConn.setInterface(iface);
+					System.out.println("Handled SET_INTERFACE via Android API");
+					return true;
 				}
 			}
 		}
