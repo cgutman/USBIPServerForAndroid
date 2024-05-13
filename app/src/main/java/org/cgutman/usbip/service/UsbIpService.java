@@ -192,10 +192,12 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 	private final static int FLAG_POSSIBLE_SPEED_LOW = 0x01;
 	private final static int FLAG_POSSIBLE_SPEED_FULL = 0x02;
 	private final static int FLAG_POSSIBLE_SPEED_HIGH = 0x04;
+	private final static int FLAG_POSSIBLE_SPEED_SUPER = 0x08;
 	private int detectSpeed(UsbDevice dev, UsbDeviceDescriptor devDesc) {
 		int possibleSpeeds = FLAG_POSSIBLE_SPEED_LOW |
 				FLAG_POSSIBLE_SPEED_FULL |
-				FLAG_POSSIBLE_SPEED_HIGH;
+				FLAG_POSSIBLE_SPEED_HIGH |
+				FLAG_POSSIBLE_SPEED_SUPER;
 		
 		for (int i = 0; i < dev.getInterfaceCount(); i++) {
 			UsbInterface iface = dev.getInterface(i);
@@ -216,6 +218,10 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 						// High speed devices can't use control transfer sizes smaller than 64 bytes
 						possibleSpeeds &= ~FLAG_POSSIBLE_SPEED_HIGH;
 					}
+					if (endpoint.getMaxPacketSize() < 512) {
+						// Super speed devices can't use control transfer sizes smaller than 512 bytes
+						possibleSpeeds &= ~FLAG_POSSIBLE_SPEED_SUPER;
+					}
 				}
 				else if (endpoint.getType() == UsbConstants.USB_ENDPOINT_XFER_INT) {
 					if (endpoint.getMaxPacketSize() > 8) {
@@ -226,23 +232,27 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 						// Full speed devices can't use interrupt transfer sizes larger than 64 bytes
 						possibleSpeeds &= ~FLAG_POSSIBLE_SPEED_FULL;
 					}
+					if (endpoint.getMaxPacketSize() > 512) {
+						// High speed devices can't use interrupt transfer sizes larger than 512 bytes
+						possibleSpeeds &= ~FLAG_POSSIBLE_SPEED_HIGH;
+					}
 				}
 				else if (endpoint.getType() == UsbConstants.USB_ENDPOINT_XFER_BULK) {
 					// A bulk endpoint alone can accurately distiniguish between
-					// full and high speed devices
-					if (endpoint.getMaxPacketSize() == 512) {
-						// High speed devices can only use 512 byte bulk transfers
-						possibleSpeeds = FLAG_POSSIBLE_SPEED_HIGH;
-					}
-					else {
-						// Otherwise it must be full speed
-						possibleSpeeds = FLAG_POSSIBLE_SPEED_FULL;
-					}
-				}
-				else if (endpoint.getType() == UsbConstants.USB_ENDPOINT_XFER_ISOC) {
-					// If the transfer size is 1024, it must be high speed
-					if (endpoint.getMaxPacketSize() == 1024) {
-						possibleSpeeds = FLAG_POSSIBLE_SPEED_HIGH;
+					// full, high, and super speed devices
+					switch (endpoint.getMaxPacketSize()) {
+						case 512:
+							// High speed devices can only use 512 byte bulk transfers
+							possibleSpeeds = FLAG_POSSIBLE_SPEED_HIGH;
+							break;
+						case 1024:
+							// Super speed devices can only use 1024 byte bulk transfers
+							possibleSpeeds = FLAG_POSSIBLE_SPEED_SUPER;
+							break;
+						default:
+							// Otherwise it must be full speed
+							possibleSpeeds = FLAG_POSSIBLE_SPEED_FULL;
+							break;
 					}
 				}
 			}
@@ -252,6 +262,10 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 			if (devDesc.bcdUSB < 0x200) {
 				// High speed only supported on USB 2.0 or higher
 				possibleSpeeds &= ~FLAG_POSSIBLE_SPEED_HIGH;
+			}
+			if (devDesc.bcdUSB < 0x300) {
+				// Super speed only supported on USB 3.0 or higher
+				possibleSpeeds &= ~FLAG_POSSIBLE_SPEED_SUPER;
 			}
 		}
 		
@@ -267,6 +281,9 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		}
 		else if ((possibleSpeeds & FLAG_POSSIBLE_SPEED_HIGH) != 0) {
 			return UsbIpDevice.USB_SPEED_HIGH;
+		}
+		else if ((possibleSpeeds & FLAG_POSSIBLE_SPEED_SUPER) != 0) {
+			return UsbIpDevice.USB_SPEED_SUPER;
 		}
 		else {
 			// Something went very wrong in speed detection

@@ -27,6 +27,7 @@ public class UsbIpDevice {
 	public static final int USB_SPEED_FULL = 2;
 	public static final int USB_SPEED_HIGH = 3;
 	public static final int USB_SPEED_VARIABLE = 4;
+	public static final int USB_SPEED_SUPER = 5;
 	
 	public static final int BUS_ID_SIZE = 32;
 	public static final int DEV_PATH_SIZE = 256;
