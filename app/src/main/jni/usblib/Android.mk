@@ -6,7 +6,7 @@ include $(call all-subdir-makefiles)
 LOCAL_PATH := $(MY_LOCAL_PATH)
 
 include $(CLEAR_VARS)
-LOCAL_MODULE    := errno
-LOCAL_SRC_FILES := errno_jni.c
+LOCAL_MODULE    := usblib
+LOCAL_SRC_FILES := usblib_jni.c
 
 include $(BUILD_SHARED_LIBRARY)
