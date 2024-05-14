@@ -444,7 +444,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 	
 	// FIXME: This dispatching could use some refactoring so we don't have to pass
 	// a million parameters to this guy
-	private void dispatchRequest(final AttachedDeviceContext context, final Socket s,
+	private void dispatchRequest(final AttachedDeviceContext context, final int deviceId, final Socket s,
 			final UsbEndpoint selectedEndpoint, final ByteBuffer buff, final UsbIpSubmitUrb msg) {
 		context.requestPool.submit(new Runnable() {
 			@Override
@@ -485,6 +485,14 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 					}
 					
 					if (res < 0) {
+						// If the request failed, let's see if the device is still around
+						UsbDevice dev = getDevice(deviceId);
+						if (dev == null) {
+							// The device is gone, so terminate the client
+							server.killClient(s);
+							return;
+						}
+
 						reply.status = res;
 					}
 					else {
@@ -524,6 +532,14 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 					
 					if (res < 0) {
 						reply.status = res;
+
+						// If the request failed, let's see if the device is still around
+						UsbDevice dev = getDevice(deviceId);
+						if (dev == null) {
+							// The device is gone, so terminate the client
+							server.killClient(s);
+							return;
+						}
 					}
 					else {
 						reply.actualLength = res;
@@ -548,13 +564,6 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 				msg.devId, msg.direction, msg.ep);
 		
 		int deviceId = devIdToDeviceId(msg.devId);
-		
-		UsbDevice dev = getDevice(deviceId);
-		if (dev == null) {
-			// The device is gone, so terminate the client
-			server.killClient(s);
-			return;
-		}
 		
 		AttachedDeviceContext context = connections.get(deviceId);
 		if (context == null) {
@@ -609,6 +618,14 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 			}
 
 			if (res < 0) {
+				// If the request failed, let's see if the device is still around
+				UsbDevice dev = getDevice(deviceId);
+				if (dev == null) {
+					// The device is gone, so terminate the client
+					server.killClient(s);
+					return;
+				}
+
 				reply.status = res;
 			}
 			else {
@@ -618,7 +635,6 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 			
 			context.activeMessages.remove(msg);
 			sendReply(s, reply, reply.status);
-			return;
 		}
 		else {
 			// Find the correct endpoint
@@ -651,7 +667,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 			context.activeMessages.add(msg);
 			
 			// Dispatch this request asynchronously
-			dispatchRequest(context, s, selectedEndpoint, buff, msg);
+			dispatchRequest(context, deviceId, s, selectedEndpoint, buff, msg);
 		}
 	}
 	
