@@ -63,7 +63,8 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 	private HashMap<Socket, AttachedDeviceContext> socketMap;
 	private UsbIpServer server;
 	private WakeLock cpuWakeLock;
-	private WifiLock wifiLock;
+	private WifiLock highPerfWifiLock;
+	private WifiLock lowLatencyWifiLock;
 	
 	private static final boolean DEBUG = false;
 	
@@ -153,8 +154,13 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		cpuWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "USBIPServerForAndroid:Service");
 		cpuWakeLock.acquire();
 		
-		wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "USBIPServerForAndroid:Service");
-		wifiLock.acquire();
+		highPerfWifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "USBIPServerForAndroid:Service:HP");
+		highPerfWifiLock.acquire();
+
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+			lowLatencyWifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "USBIPServerForAndroid:Service:LL");
+			lowLatencyWifiLock.acquire();
+		}
 		
 		server = new UsbIpServer();
 		server.start(this);
@@ -173,8 +179,11 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		
 		server.stop();
 		unregisterReceiver(usbReceiver);
-		
-		wifiLock.release();
+
+		if (lowLatencyWifiLock != null) {
+			lowLatencyWifiLock.release();
+		}
+		highPerfWifiLock.release();
 		cpuWakeLock.release();
 	}
 	
