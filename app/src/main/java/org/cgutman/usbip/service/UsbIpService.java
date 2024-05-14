@@ -119,7 +119,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		startForeground(NOTIFICATION_ID, builder.build());
 	}
 	
-	@SuppressLint("UseSparseArrays")
+	@SuppressLint({"UseSparseArrays", "UnspecifiedRegisterReceiverFlag"})
 	@Override
 	public void onCreate() {
 		super.onCreate();
