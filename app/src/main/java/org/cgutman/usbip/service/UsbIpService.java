@@ -483,6 +483,11 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 						System.out.printf("Bulk transfer complete with %d bytes (wanted %d)\n",
 								res, msg.transferBufferLength);
 					}
+
+					if (!context.activeMessages.remove(msg)) {
+						// Somebody cancelled the URB, return without responding
+						return;
+					}
 					
 					if (res < 0) {
 						// If the request failed, let's see if the device is still around
@@ -500,7 +505,6 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 						reply.status = ProtoDefs.ST_OK;
 					}
 
-					context.activeMessages.remove(msg);
 					sendReply(s, reply, reply.status);
 				}
 				else if (selectedEndpoint.getType() == UsbConstants.USB_ENDPOINT_XFER_INT) {
@@ -529,6 +533,11 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 						System.out.printf("Interrupt transfer complete with %d bytes (wanted %d)\n",
 								res, msg.transferBufferLength);
 					}
+
+					if (!context.activeMessages.remove(msg)) {
+						// Somebody cancelled the URB, return without responding
+						return;
+					}
 					
 					if (res < 0) {
 						reply.status = res;
@@ -546,7 +555,6 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 						reply.status = ProtoDefs.ST_OK;
 					}
 					
-					context.activeMessages.remove(msg);
 					sendReply(s, reply, reply.status);
 				}
 				else {
@@ -617,6 +625,11 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 				res = 0;
 			}
 
+			if (!context.activeMessages.remove(msg)) {
+				// Somebody cancelled the URB, return without responding
+				return;
+			}
+
 			if (res < 0) {
 				// If the request failed, let's see if the device is still around
 				UsbDevice dev = getDevice(deviceId);
@@ -633,7 +646,6 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 				reply.status = ProtoDefs.ST_OK;
 			}
 			
-			context.activeMessages.remove(msg);
 			sendReply(s, reply, reply.status);
 		}
 		else {
