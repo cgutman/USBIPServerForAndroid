@@ -364,8 +364,9 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 			// Since we're attached already, we can directly query the USB descriptors
 			// to fill some information that Android's USB API doesn't expose
 			devDesc = UsbControlHelper.readDeviceDescriptor(context.devConn);
-			
-			ipDev.bcdDevice = devDesc.bcdDevice;
+			if (devDesc != null) {
+				ipDev.bcdDevice = devDesc.bcdDevice;
+			}
 		}
 		
 		ipDev.speed = detectSpeed(dev, devDesc);
