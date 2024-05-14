@@ -7,6 +7,8 @@ import android.hardware.usb.UsbEndpoint;
 import android.hardware.usb.UsbInterface;
 import android.os.Build;
 
+import org.cgutman.usbip.service.AttachedDeviceContext;
+
 public class UsbControlHelper {
 	
 	private static final int GET_DESCRIPTOR_REQUEST_TYPE = 0x80;
@@ -71,7 +73,7 @@ public class UsbControlHelper {
 		return true;
 	}
 
-	public static boolean handleInternalControlTransfer(UsbDevice dev, UsbDeviceConnection devConn, int requestType, int request, int value, int index) {
+	public static boolean handleInternalControlTransfer(AttachedDeviceContext deviceContext, int requestType, int request, int value, int index) {
 		// Mask out possible sign expansions
 		requestType &= 0xFF;
 		request &= 0xFF;
@@ -79,23 +81,63 @@ public class UsbControlHelper {
 		index &= 0xFFFF;
 
 		if (requestType == SET_CONFIGURATION_REQUEST_TYPE && request == SET_CONFIGURATION_REQUEST) {
-			for (int i = 0; i < dev.getConfigurationCount(); i++) {
-				UsbConfiguration config = dev.getConfiguration(i);
+			System.out.println("Handling SET_CONFIGURATION via Android API");
+
+			for (int i = 0; i < deviceContext.device.getConfigurationCount(); i++) {
+				UsbConfiguration config = deviceContext.device.getConfiguration(i);
 				if (config.getId() == value) {
-					devConn.setConfiguration(config);
-					System.out.println("Handled SET_CONFIGURATION via Android API");
+					// If we have a current config, we need unclaim all interfaces to allow the
+					// configuration change to work properly.
+					if (deviceContext.activeConfiguration != null) {
+						System.out.println("Unclaiming all interfaces from old configuration: "+deviceContext.activeConfiguration.getId());
+						for (int j = 0; j < deviceContext.activeConfiguration.getInterfaceCount(); j++) {
+							UsbInterface iface = deviceContext.activeConfiguration.getInterface(j);
+							deviceContext.devConn.releaseInterface(iface);
+						}
+					}
+
+					if (!deviceContext.devConn.setConfiguration(config)) {
+						// This can happen for certain types of devices where Android itself
+						// has set the configuration for us. Let's just hope that whatever the
+						// client wanted is also what Android selected :/
+						System.err.println("Failed to set configuration! Proceeding anyway!");
+					}
+
+					// This is now the active configuration
+					deviceContext.activeConfiguration = config;
+
+					System.out.println("Claiming all interfaces from new configuration: "+deviceContext.activeConfiguration.getId());
+					for (int j = 0; j < deviceContext.activeConfiguration.getInterfaceCount(); j++) {
+						UsbInterface iface = deviceContext.activeConfiguration.getInterface(j);
+						if (!deviceContext.devConn.claimInterface(iface, true)) {
+							System.err.println("Unable to claim interface: "+iface.getId());
+						}
+					}
+
 					return true;
 				}
 			}
+
+			System.err.printf("SET_CONFIGURATION specified invalid configuration: %d\n", value);
 		}
 		else if (requestType == SET_INTERFACE_REQUEST_TYPE && request == SET_INTERFACE_REQUEST) {
-			for (int i = 0; i < dev.getInterfaceCount(); i++) {
-				UsbInterface iface = dev.getInterface(i);
-				if (iface.getId() == index && iface.getAlternateSetting() == value) {
-					devConn.setInterface(iface);
-					System.out.println("Handled SET_INTERFACE via Android API");
-					return true;
+			System.out.println("Handling SET_INTERFACE via Android API");
+
+			if (deviceContext.activeConfiguration != null) {
+				for (int i = 0; i < deviceContext.activeConfiguration.getInterfaceCount(); i++) {
+					UsbInterface iface = deviceContext.activeConfiguration.getInterface(i);
+					if (iface.getId() == index && iface.getAlternateSetting() == value) {
+						if (!deviceContext.devConn.setInterface(iface)) {
+							System.err.println("Unable to set interface: "+iface.getId());
+						}
+						return true;
+					}
 				}
+
+				System.err.printf("SET_INTERFACE specified invalid interface: %d %d\n", index, value);
+			}
+			else {
+				System.err.println("Attempted to use SET_INTERFACE before SET_CONFIGURATION!");
 			}
 		}
 

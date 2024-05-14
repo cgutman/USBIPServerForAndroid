@@ -577,7 +577,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 
 			// We have to handle certain control requests (SET_CONFIGURATION/SET_INTERFACE) by calling
 			// Android APIs rather than just submitting the URB directly to the device
-			if (!UsbControlHelper.handleInternalControlTransfer(dev, devConn, requestType, request, value, index)) {
+			if (!UsbControlHelper.handleInternalControlTransfer(context, requestType, request, value, index)) {
 				do {
 					res = XferUtils.doControlTransfer(devConn, requestType, request, value, index,
 							(requestType & 0x80) != 0 ? reply.inData : msg.outData, length, 1000);
@@ -613,35 +613,40 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		else {
 			// Find the correct endpoint
 			UsbEndpoint selectedEndpoint = null;
-			for (int i = 0; i < dev.getInterfaceCount(); i++) {
-				// Check each interface
-				UsbInterface iface = dev.getInterface(i);
-				for (int j = 0; j < iface.getEndpointCount(); j++) {
-					// Check the endpoint number
-					UsbEndpoint endpoint = iface.getEndpoint(j);
-					if (msg.ep == endpoint.getEndpointNumber()) {
-						// Check the direction
-						if (msg.direction == UsbIpDevicePacket.USBIP_DIR_IN) {
-							if (endpoint.getDirection() != UsbConstants.USB_DIR_IN) {
-								continue;
+			if (context.activeConfiguration != null) {
+				for (int i = 0; i < context.activeConfiguration.getInterfaceCount(); i++) {
+					// Check each interface
+					UsbInterface iface = context.activeConfiguration.getInterface(i);
+					for (int j = 0; j < iface.getEndpointCount(); j++) {
+						// Check the endpoint number
+						UsbEndpoint endpoint = iface.getEndpoint(j);
+						if (msg.ep == endpoint.getEndpointNumber()) {
+							// Check the direction
+							if (msg.direction == UsbIpDevicePacket.USBIP_DIR_IN) {
+								if (endpoint.getDirection() != UsbConstants.USB_DIR_IN) {
+									continue;
+								}
 							}
-						}
-						else {
-							if (endpoint.getDirection() != UsbConstants.USB_DIR_OUT) {
-								continue;
+							else {
+								if (endpoint.getDirection() != UsbConstants.USB_DIR_OUT) {
+									continue;
+								}
 							}
+
+							// This the right endpoint
+							selectedEndpoint = endpoint;
+							break;
 						}
-						
-						// This the right endpoint
-						selectedEndpoint = endpoint;
+					}
+
+					// Check if we found the endpoint on the last interface
+					if (selectedEndpoint != null) {
 						break;
 					}
 				}
-				
-				// Check if we found the endpoint on the last interface
-				if (selectedEndpoint != null) {
-					break;
-				}
+			}
+			else {
+				System.err.println("Attempted to transfer to non-control EP before SET_CONFIGURATION!");
 			}
 			
 			if (selectedEndpoint == null) {
@@ -733,13 +738,6 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		UsbDeviceConnection devConn = usbManager.openDevice(dev);
 		if (devConn == null) {
 			return false;
-		}
-		
-		// Claim all interfaces since we don't know which one the client wants
-		for (int i = 0; i < dev.getInterfaceCount(); i++) {
-			if (!devConn.claimInterface(dev.getInterface(i), true)) {
-				System.err.println("Unable to claim interface "+dev.getInterface(i).getId());
-			}
 		}
 		
 		// Create a context for this attachment
@@ -841,11 +839,5 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 				found ? UsbIpSubmitUrb.USBIP_STATUS_URB_ABORTED :
 					-22); // EINVAL
 	}
-	
-	static class AttachedDeviceContext {
-		public UsbDevice device;
-		public UsbDeviceConnection devConn;
-		public ThreadPoolExecutor requestPool;
-		public HashSet<UsbIpSubmitUrb> activeMessages;
-	}
+
 }
