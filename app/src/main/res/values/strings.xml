@@ -2,5 +2,6 @@
 
     <string name="app_name">USB/IP Server</string>
     <string name="service_name">USB/IP Server Service</string>
-    
+
+    <string name="ready_text">Claim a USB device from your USB/IP client to get started!</string>
 </resources>

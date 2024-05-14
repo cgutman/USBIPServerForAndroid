@@ -24,6 +24,7 @@ import androidx.core.content.ContextCompat;
 public class UsbIpConfig extends ComponentActivity {
 	private Button serviceButton;
 	private TextView serviceStatus;
+	private TextView serviceReadyText;
 	
 	private boolean running;
 
@@ -37,10 +38,12 @@ public class UsbIpConfig extends ComponentActivity {
 		if (running) {
 			serviceButton.setText("Stop Service");
 			serviceStatus.setText("USB/IP Service Running");
+			serviceReadyText.setText(R.string.ready_text);
 		}
 		else {
 			serviceButton.setText("Start Service");
 			serviceStatus.setText("USB/IP Service Stopped");
+			serviceReadyText.setText("");
 		}
 	}
 	
@@ -60,8 +63,9 @@ public class UsbIpConfig extends ComponentActivity {
 		super.onCreate(savedInstanceState);
 		setContentView(R.layout.activity_usbip_config);
 
-		serviceButton = (Button) findViewById(R.id.serviceButton);
-		serviceStatus = (TextView) findViewById(R.id.serviceStatus);
+		serviceButton = findViewById(R.id.serviceButton);
+		serviceStatus = findViewById(R.id.serviceStatus);
+		serviceReadyText = findViewById(R.id.serviceReadyText);
 		
 		running = isMyServiceRunning(UsbIpService.class);
 		
