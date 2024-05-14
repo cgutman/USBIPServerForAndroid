@@ -6,6 +6,7 @@ import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbEndpoint;
 import android.hardware.usb.UsbInterface;
 import android.os.Build;
+import android.util.SparseArray;
 
 import org.cgutman.usbip.service.AttachedDeviceContext;
 
@@ -105,6 +106,18 @@ public class UsbControlHelper {
 
 					// This is now the active configuration
 					deviceContext.activeConfiguration = config;
+
+					// Construct the cache of endpoint mappings
+					deviceContext.activeConfigurationEndpointsByNumDir = new SparseArray<>();
+					for (int j = 0; j < deviceContext.activeConfiguration.getInterfaceCount(); j++) {
+						UsbInterface iface = deviceContext.activeConfiguration.getInterface(j);
+						for (int k = 0; k < iface.getEndpointCount(); k++) {
+							UsbEndpoint endp = iface.getEndpoint(k);
+							deviceContext.activeConfigurationEndpointsByNumDir.put(
+									endp.getDirection() | endp.getEndpointNumber(),
+									endp);
+						}
+					}
 
 					System.out.println("Claiming all interfaces from new configuration: "+deviceContext.activeConfiguration.getId());
 					for (int j = 0; j < deviceContext.activeConfiguration.getInterfaceCount(); j++) {

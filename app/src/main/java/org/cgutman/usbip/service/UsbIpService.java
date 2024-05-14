@@ -623,37 +623,9 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		else {
 			// Find the correct endpoint
 			UsbEndpoint selectedEndpoint = null;
-			if (context.activeConfiguration != null) {
-				for (int i = 0; i < context.activeConfiguration.getInterfaceCount(); i++) {
-					// Check each interface
-					UsbInterface iface = context.activeConfiguration.getInterface(i);
-					for (int j = 0; j < iface.getEndpointCount(); j++) {
-						// Check the endpoint number
-						UsbEndpoint endpoint = iface.getEndpoint(j);
-						if (msg.ep == endpoint.getEndpointNumber()) {
-							// Check the direction
-							if (msg.direction == UsbIpDevicePacket.USBIP_DIR_IN) {
-								if (endpoint.getDirection() != UsbConstants.USB_DIR_IN) {
-									continue;
-								}
-							}
-							else {
-								if (endpoint.getDirection() != UsbConstants.USB_DIR_OUT) {
-									continue;
-								}
-							}
-
-							// This the right endpoint
-							selectedEndpoint = endpoint;
-							break;
-						}
-					}
-
-					// Check if we found the endpoint on the last interface
-					if (selectedEndpoint != null) {
-						break;
-					}
-				}
+			if (context.activeConfigurationEndpointsByNumDir != null) {
+				int endptNumDir = msg.ep + (msg.direction == UsbIpDevicePacket.USBIP_DIR_IN ? UsbConstants.USB_DIR_IN : 0);
+				selectedEndpoint = context.activeConfigurationEndpointsByNumDir.get(endptNumDir);
 			}
 			else {
 				System.err.println("Attempted to transfer to non-control EP before SET_CONFIGURATION!");
